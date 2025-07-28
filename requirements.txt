@@ -1,0 +1,9 @@
+yomitoku
+openpyxl
+pandas
+pdfminer.six
+rapidfuzz
+python-dateutil
+click
+pdf2image
+opencv-python

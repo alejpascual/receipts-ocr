@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Main entry point for the receipts CLI tool."""
+
+import sys
+import os
+from pathlib import Path
+
+# Store original directory
+original_dir = os.getcwd()
+
+# Add src directory to Python path
+src_path = Path(__file__).parent / 'src'
+sys.path.insert(0, str(src_path))
+
+# Change to src directory for imports
+os.chdir(str(src_path))
+
+import cli
+
+# Change back to original directory for file operations
+os.chdir(original_dir)
+
+if __name__ == '__main__':
+    cli.cli()
