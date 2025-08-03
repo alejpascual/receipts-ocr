@@ -1,11 +1,11 @@
 travel:
-  any: ["JR", "JR東日本", "地下鉄", "タクシー", "高速", "Suica", "Pasmo", "新幹線", "バス", "電車", "切符"]
+  any: ["JR", "JR東日本", "地下鉄", "タクシー", "高速", "Suica", "Pasmo", "新幹線", "バス", "電車", "切符", "鉄道", "Railway", "VP", "交通"]
 
 "communications (phone, internet, postage)":
-  any: ["NTT", "KDDI", "ソフトバンク", "郵便", "切手", "Wi-Fi", "インターネット", "電話", "通信"]
+  any: ["NTT", "KDDI", "ソフトバンク", "郵便", "切手", "Wi-Fi", "インターネット", "電話", "通信", "楽天モバイル", "Rakuten Mobile", "Rakuten", "4G", "LTE", "携帯", "スマホ", "モバイル"]
 
 "Office supplies":
-  any: ["アマゾン", "Amazon", "ヨドバシ", "ビックカメラ", "文具", "トナー", "コピー用紙", "ペン", "ノート"]
+  any: ["アマゾン", "Amazon", "ヨドバシ", "ビックカメラ", "文具", "トナー", "コピー用紙", "ペン", "ノート", "オフィス用品", "事務用品", "Equipment"]
 
 Equipment:
   any: ["ノートパソコン", "PC", "Mac", "ディスプレイ", "プリンタ", "機材", "カメラ", "パソコン"]
@@ -17,7 +17,7 @@ meetings:
   any: ["会議", "打合せ", "ミーティング", "商談", "会食", "懇親会"]
 
 entertainment:
-  any: ["スターバックス", "ドトール", "珈琲館", "喫茶", "居酒屋", "レストラン", "カフェ", "飲食", "食事", "タイ", "THAI", "ガーデン", "GARDEN", "インド", "Indian", "Restaurant", "牛", "ロース", "肉", "テーブル", "焼肉", "寿司", "ラーメン", "うどん", "そば", "BURGER", "WAGYU", "CHEESE", "麺類", "野菜", "ビュッフェ", "FARM", "ポーク", "チキン", "ビーフ", "カフェオレ", "チャイ"]
+  any: ["スターバックス", "Starbucks", "ドトール", "珈琲館", "喫茶", "居酒屋", "レストラン", "カフェ", "飲食", "食事", "タイ", "THAI", "ガーデン", "GARDEN", "インド", "Indian", "Restaurant", "牛", "ロース", "肉", "テーブル", "焼肉", "寿司", "ラーメン", "うどん", "そば", "BURGER", "WAGYU", "CHEESE", "麺類", "野菜", "ビュッフェ", "FARM", "ポーク", "チキン", "ビーフ", "カフェオレ", "チャイ", "Coffee"]
 
 "outsourced fees":
   any: ["外注", "委託", "請負", "業務委託", "アウトソース"]
@@ -29,10 +29,13 @@ Repairs:
   any: ["修理", "交換", "メンテ", "点検", "補修"]
 
 Memberships:
-  any: ["会費", "年会費", "メンバーシップ", "入会金", "会員"]
+  any: ["会費", "年会費", "メンバーシップ", "入会金", "会員", "LinkedIn", "リンクトイン", "Subscription", "サブスクリプション", "定額", "月額"]
+
+"Software and Services":
+  any: ["GPT", "ChatGPT", "OpenAI", "AI", "Claude", "Software", "ソフトウェア", "SaaS", "API", "アプリ", "App", "プラットフォーム", "Platform", "Service", "サービス", "クラウド", "Cloud"]
 
 Rent:
-  any: ["家賃", "賃料", "地代", "テナント", "オフィス"]
+  any: ["家賃", "賃料", "地代", "テナント", "オフィス", "Office", "OFFICE", "office", "Kitchen Amenities", "Subtotal", "BOKSEN", "Account number", "Invoice number", "Center name", "TAX INVOICE"]
 
 Utilities:
   any: ["電気", "ガス", "水道", "光熱費", "電力", "東京電力", "東京ガス"]

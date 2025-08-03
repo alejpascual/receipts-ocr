@@ -35,27 +35,20 @@ class ExcelExporter:
                           review_items: List[ReviewItem],
                           include_summary: bool = False):
         """
-        Export transactions and review data to Excel.
+        Export transactions and review data to a single consolidated Excel sheet.
         
         Args:
             transactions: List of transaction dictionaries
             review_items: List of items needing review
-            include_summary: Whether to include summary sheet
+            include_summary: Whether to include summary section (always True now)
         """
         try:
             # Remove default sheet
             if "Sheet" in self.workbook.sheetnames:
                 self.workbook.remove(self.workbook["Sheet"])
             
-            # Create transactions sheet
-            self._create_transactions_sheet(transactions)
-            
-            # Create review sheet
-            self._create_review_sheet(review_items)
-            
-            # Create summary sheet if requested
-            if include_summary:
-                self._create_summary_sheet(transactions)
+            # Create single consolidated sheet
+            self._create_consolidated_sheet(transactions, review_items, include_summary)
             
             # Save workbook
             self.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,168 +60,166 @@ class ExcelExporter:
             logger.error(f"Failed to export Excel file: {e}")
             raise
     
-    def _create_transactions_sheet(self, transactions: List[Dict[str, Any]]):
-        """Create the main transactions sheet."""
-        ws = self.workbook.create_sheet("Transactions")
+    def _create_consolidated_sheet(self, transactions: List[Dict[str, Any]], review_items: List[ReviewItem], include_summary: bool = True):
+        """Create a single consolidated sheet with transactions, review items, and summary."""
+        ws = self.workbook.create_sheet("All Transactions")
         
-        # Define headers with File Name as first column
-        headers = ["File Name", "Date", "Amount", "Category", "Description"]
+        current_row = 1
+        
+        # Add summary section first if requested
+        if include_summary:
+            current_row = self._add_summary_section(ws, transactions, current_row)
+            current_row += 2  # Add spacing
+        
+        # Create review lookup for merging data
+        review_lookup = {Path(item.file_path).name: item for item in review_items}
+        
+        # Define headers for consolidated view
+        headers = ["File Name", "Date", "Amount", "Category", "Description", 
+                  "Review Status", "Review Reason", "Raw Snippet"]
+        
+        # Add section title
+        ws.cell(row=current_row, column=1, value="ALL TRANSACTIONS").font = Font(bold=True, size=14)
+        current_row += 2
         
         # Add headers
         for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
+            cell = ws.cell(row=current_row, column=col, value=header)
             cell.font = Font(bold=True)
             cell.fill = PatternFill(start_color="E6E6E6", end_color="E6E6E6", fill_type="solid")
             cell.alignment = Alignment(horizontal="center")
         
-        # Add transaction data
-        for row, transaction in enumerate(transactions, 2):
-            ws.cell(row=row, column=1, value=transaction.get('file_name', ''))
-            ws.cell(row=row, column=2, value=transaction.get('date', ''))
-            ws.cell(row=row, column=3, value=transaction.get('amount', 0))
-            ws.cell(row=row, column=4, value=transaction.get('category', 'Other'))
-            ws.cell(row=row, column=5, value=transaction.get('description', ''))
+        current_row += 1
         
-        # Auto-adjust column widths
-        for column in ws.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)  # Cap at 50 chars
-            ws.column_dimensions[column_letter].width = adjusted_width
+        # Sort transactions: OK first, then REVIEW
+        # Separate transactions into OK and REVIEW categories
+        ok_transactions = []
+        review_transactions = []
         
-        logger.info(f"Created transactions sheet with {len(transactions)} records")
-    
-    def _create_review_sheet(self, review_items: List[ReviewItem]):
-        """Create the review sheet for items needing manual attention."""
-        ws = self.workbook.create_sheet("Review")
+        for transaction in transactions:
+            file_name = transaction.get('file_name', '')
+            review_item = review_lookup.get(file_name)
+            
+            if review_item:
+                review_transactions.append((transaction, review_item))
+            else:
+                ok_transactions.append((transaction, None))
         
-        # Define headers as specified in PRD
-        headers = ["File", "Reason", "Suggested Date", "Suggested Amount", 
-                  "Suggested Category", "Raw Snippet"]
+        # Add OK transactions first
+        for transaction, review_item in ok_transactions:
+            file_name = transaction.get('file_name', '')
+            
+            # Basic transaction data
+            ws.cell(row=current_row, column=1, value=file_name)
+            ws.cell(row=current_row, column=2, value=transaction.get('date', ''))
+            ws.cell(row=current_row, column=3, value=transaction.get('amount', 0))
+            ws.cell(row=current_row, column=4, value=transaction.get('category', 'Other'))
+            ws.cell(row=current_row, column=5, value=transaction.get('description', ''))
+            
+            # OK status
+            ws.cell(row=current_row, column=6, value="OK")
+            ws.cell(row=current_row, column=7, value="")
+            ws.cell(row=current_row, column=8, value="")
+            
+            current_row += 1
         
-        # Add headers
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="FFE6E6", end_color="FFE6E6", fill_type="solid")
-            cell.alignment = Alignment(horizontal="center")
+        # Add REVIEW transactions at the end
+        for transaction, review_item in review_transactions:
+            file_name = transaction.get('file_name', '')
+            
+            # Basic transaction data
+            ws.cell(row=current_row, column=1, value=file_name)
+            ws.cell(row=current_row, column=2, value=transaction.get('date', ''))
+            ws.cell(row=current_row, column=3, value=transaction.get('amount', 0))
+            ws.cell(row=current_row, column=4, value=transaction.get('category', 'Other'))
+            ws.cell(row=current_row, column=5, value=transaction.get('description', ''))
+            
+            # Review information
+            ws.cell(row=current_row, column=6, value="REVIEW")
+            ws.cell(row=current_row, column=7, value=review_item.reason)
+            ws.cell(row=current_row, column=8, value=review_item.raw_snippet)
+            
+            current_row += 1
         
-        # Add review items
-        for row, item in enumerate(review_items, 2):
+        # Add any review items that don't have corresponding transactions
+        for item in review_items:
             file_name = Path(item.file_path).name
-            ws.cell(row=row, column=1, value=file_name)
-            ws.cell(row=row, column=2, value=item.reason)
-            ws.cell(row=row, column=3, value=item.suggested_date or '')
-            ws.cell(row=row, column=4, value=item.suggested_amount or '')
-            ws.cell(row=row, column=5, value=item.suggested_category or '')
-            ws.cell(row=row, column=6, value=item.raw_snippet)
+            # Check if this review item already has a transaction
+            has_transaction = any(t.get('file_name') == file_name for t in transactions)
+            
+            if not has_transaction:
+                ws.cell(row=current_row, column=1, value=file_name)
+                ws.cell(row=current_row, column=2, value=item.suggested_date or '')
+                ws.cell(row=current_row, column=3, value=item.suggested_amount or '')
+                ws.cell(row=current_row, column=4, value=item.suggested_category or '')
+                ws.cell(row=current_row, column=5, value="")
+                ws.cell(row=current_row, column=6, value="REVIEW")
+                ws.cell(row=current_row, column=7, value=item.reason)
+                ws.cell(row=current_row, column=8, value=item.raw_snippet)
+                current_row += 1
         
         # Auto-adjust column widths
-        column_widths = [25, 40, 12, 12, 20, 60]  # Custom widths for review sheet
+        column_widths = [25, 12, 12, 20, 40, 12, 40, 60]
         for i, width in enumerate(column_widths, 1):
-            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+            if i <= len(headers):
+                column_letter = chr(64 + i)  # Convert to column letter (A, B, C...)
+                ws.column_dimensions[column_letter].width = width
         
-        logger.info(f"Created review sheet with {len(review_items)} items")
+        logger.info(f"Created consolidated sheet with {len(transactions)} transactions and {len(review_items)} review items")
     
-    def _create_summary_sheet(self, transactions: List[Dict[str, Any]]):
-        """Create a summary/pivot sheet with transaction analytics."""
-        ws = self.workbook.create_sheet("Summary")
-        
+    
+    def _add_summary_section(self, ws, transactions: List[Dict[str, Any]], start_row: int) -> int:
+        """Add summary statistics to the top of the consolidated sheet."""
         if not transactions:
-            ws.cell(row=1, column=1, value="No transactions to summarize")
-            return
+            ws.cell(row=start_row, column=1, value="No transactions to summarize")
+            return start_row + 1
         
         # Convert to DataFrame for easier analysis
         df = pd.DataFrame(transactions)
         
-        # Summary statistics
-        ws.cell(row=1, column=1, value="Transaction Summary").font = Font(bold=True, size=14)
+        # Title
+        ws.cell(row=start_row, column=1, value="TRANSACTION SUMMARY").font = Font(bold=True, size=14)
+        current_row = start_row + 2
         
-        row = 3
-        ws.cell(row=row, column=1, value="Total Transactions:")
-        ws.cell(row=row, column=2, value=len(transactions))
+        # Basic stats in a horizontal layout
+        ws.cell(row=current_row, column=1, value="Total Transactions:").font = Font(bold=True)
+        ws.cell(row=current_row, column=2, value=len(transactions))
         
-        row += 1
         if 'amount' in df.columns:
             total_amount = df['amount'].sum()
-            ws.cell(row=row, column=1, value="Total Amount:")
-            ws.cell(row=row, column=2, value=f"¥{total_amount:,}")
+            ws.cell(row=current_row, column=4, value="Total Amount:").font = Font(bold=True)
+            ws.cell(row=current_row, column=5, value=f"¥{total_amount:,}")
             
-            row += 1
             avg_amount = df['amount'].mean()
-            ws.cell(row=row, column=1, value="Average Amount:")
-            ws.cell(row=row, column=2, value=f"¥{avg_amount:,.0f}")
+            ws.cell(row=current_row, column=7, value="Average Amount:").font = Font(bold=True)
+            ws.cell(row=current_row, column=8, value=f"¥{avg_amount:,.0f}")
         
-        # Category breakdown
-        row += 3
-        ws.cell(row=row, column=1, value="By Category:").font = Font(bold=True)
-        row += 1
+        current_row += 2
         
+        # Category breakdown in compact format
         if 'category' in df.columns:
+            ws.cell(row=current_row, column=1, value="Category Breakdown:").font = Font(bold=True)
+            current_row += 1
+            
             category_summary = df.groupby('category').agg({
                 'amount': ['count', 'sum']
             }).round(0)
             
-            ws.cell(row=row, column=1, value="Category")
-            ws.cell(row=row, column=2, value="Count")
-            ws.cell(row=row, column=3, value="Total Amount")
+            # Headers
+            ws.cell(row=current_row, column=1, value="Category").font = Font(bold=True)
+            ws.cell(row=current_row, column=2, value="Count").font = Font(bold=True)
+            ws.cell(row=current_row, column=3, value="Amount").font = Font(bold=True)
+            current_row += 1
             
-            for col in range(1, 4):
-                ws.cell(row=row, column=col).font = Font(bold=True)
-            
-            row += 1
-            for category, data in category_summary.iterrows():
-                ws.cell(row=row, column=1, value=category)
-                ws.cell(row=row, column=2, value=int(data[('amount', 'count')]))
-                ws.cell(row=row, column=3, value=f"¥{int(data[('amount', 'sum')]):,}")
-                row += 1
+            # Data - limit to top categories to keep compact
+            top_categories = category_summary.nlargest(5, ('amount', 'sum'))
+            for category, data in top_categories.iterrows():
+                ws.cell(row=current_row, column=1, value=category)
+                ws.cell(row=current_row, column=2, value=int(data[('amount', 'count')]))
+                ws.cell(row=current_row, column=3, value=f"¥{int(data[('amount', 'sum')]):,}")
+                current_row += 1
         
-        # Monthly breakdown if dates available
-        if 'date' in df.columns:
-            row += 2
-            ws.cell(row=row, column=1, value="By Month:").font = Font(bold=True)
-            row += 1
-            
-            # Convert dates to datetime for grouping
-            df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
-            monthly_summary = df.groupby(df['date_parsed'].dt.to_period('M')).agg({
-                'amount': ['count', 'sum']
-            }).round(0)
-            
-            ws.cell(row=row, column=1, value="Month")
-            ws.cell(row=row, column=2, value="Count")
-            ws.cell(row=row, column=3, value="Total Amount")
-            
-            for col in range(1, 4):
-                ws.cell(row=row, column=col).font = Font(bold=True)
-            
-            row += 1
-            for month, data in monthly_summary.iterrows():
-                ws.cell(row=row, column=1, value=str(month))
-                ws.cell(row=row, column=2, value=int(data[('amount', 'count')]))
-                ws.cell(row=row, column=3, value=f"¥{int(data[('amount', 'sum')]):,}")
-                row += 1
-        
-        # Auto-adjust column widths
-        for column in ws.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 30)
-            ws.column_dimensions[column_letter].width = adjusted_width
-        
-        logger.info("Created summary sheet with analytics")
+        return current_row
     
     @staticmethod
     def validate_transaction_data(transactions: List[Dict[str, Any]]) -> List[str]:
@@ -279,5 +270,5 @@ class ExcelExporter:
             'amount': amount or 0,
             'category': category,
             'description': description,
-            'source_file': Path(file_path).name if file_path else ''
+            'file_name': Path(file_path).name if file_path else ''
         }

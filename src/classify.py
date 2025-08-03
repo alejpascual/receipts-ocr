@@ -240,8 +240,15 @@ class CategoryClassifier:
         strong_tokyo_indicators = ['Tokyo', 'tokyo', 'Minato-ku', 'Shibuya', 'Azabu', '東京都', '港区', '渋谷区']
         strong_tokyo_found = any(indicator in text for indicator in strong_tokyo_indicators)
         
+        # Special handling for office rental/tax invoices - should always be Rent category
+        if any(office_indicator in text for office_indicator in ['TAX INVOICE', 'Office', 'Kitchen Amenities', 'BOKSEN', 'Account number:', 'Invoice number:']):
+            scores['Rent'] = scores.get('Rent', 0) + 25.0  # Very strong boost for Rent
+            scores['entertainment'] = max(0, scores.get('entertainment', 0) - 20.0)  # Strong penalty for entertainment
+            scores['travel'] = max(0, scores.get('travel', 0) - 20.0)  # Strong penalty for travel
+            scores['Other'] = max(0, scores.get('Other', 0) - 10.0)  # Penalty for Other
+            logger.info(f"Office rental/tax invoice detected, strongly boosting Rent category and penalizing entertainment")
         # Special handling for Legal Affairs Bureau - should always be Other category
-        if any(legal_indicator in text_lower for legal_indicator in ['法務局', '登記', '登記簿', '印紙']):
+        elif any(legal_indicator in text_lower for legal_indicator in ['法務局', '登記', '登記簿', '印紙']):
             scores['Other'] = scores.get('Other', 0) + 20.0  # Very strong boost for Other
             scores['travel'] = max(0, scores.get('travel', 0) - 25.0)  # Very strong penalty for travel
             scores['Professional fees'] = max(0, scores.get('Professional fees', 0) - 10.0)  # Penalty for professional fees

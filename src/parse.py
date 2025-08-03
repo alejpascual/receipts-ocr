@@ -42,13 +42,37 @@ class JapaneseReceiptParser:
         # Total keywords (in order of preference) - 合計 is highest priority
         # Include spaced versions for OCR variations
         self.total_keywords = [
-            '合計', '合 計', '総合計', '総 合 計', '税込合計', 'お買上げ', '総計', '税込', '言十', '合'
+            '利用金額', '利用額', '入金額', '領収金額', '合計', '合 計', '総合計', '総 合 計', '税込合計', 'お買上げ', '総計', '税込', '言十', '合'
         ]
         
         # Keywords to avoid (tax, subtotal, change, etc.)
         self.avoid_keywords = [
             '小計', '税抜', '本体価格', '内税', '消費税', '税額', '税金', 
-            '対象額', '課税', 'おつり', 'お釣り', '釣り', '預り', 'お預り', '内消費税'
+            '対象額', '課税', 'おつり', 'お釣り', '釣り', '預り', 'お預り', '内消費税',
+            'ATM手数料', 'ATM利用手数料', '手数料', '振込手数料',
+            '入金後残高', '残高', '現在残高', '利用可能残高', 'ポイント残高',
+            '年', '月', '日', '時', '分', '秒', '取引番号', '登録番号', '電話番号'
+        ]
+        
+        # Specific patterns for non-amount numeric data
+        self.non_amount_patterns = [
+            r'登録番号[：:]?\s*([0-9]+)',  # Registration numbers
+            r'登録No[：:]?\s*([0-9]+)',    # Registration No
+            r'取引番号[：:]?\s*([0-9]+)',  # Transaction numbers
+            r'ID[：:]?\s*([0-9]+)',       # ID numbers
+            r'番号[：:]?\s*([0-9]+)',     # Generic numbers
+            r'TEL[：:]?\s*([0-9-]+)',     # Phone numbers
+            r'電話[：:]?\s*([0-9-]+)',    # Phone numbers
+            r'Phone[：:]?\s*([0-9-]+)',   # Phone numbers
+            r'口座[：:]?\s*([0-9]+)',     # Account numbers
+            r'参照[：:]?\s*([0-9]+)',     # Reference numbers
+            r'郵便番号[：:]?\s*([0-9-]+)', # Postal codes
+            r'〒\s*([0-9-]+)',           # Postal codes with symbol
+            r'([0-9]+)時([0-9]+)分',      # Time patterns
+            r'([0-9]+):[0-9]+',          # Time patterns with colon
+            r'第([0-9]+)号',             # Issue/number patterns
+            r'No\.([0-9]+)',            # Number patterns
+            r'#([0-9]+)',                # Hash number patterns
         ]
         
         # Date context keywords
@@ -153,8 +177,24 @@ class JapaneseReceiptParser:
                     for search_line, search_idx, position in search_lines:
                         amounts = self._extract_amounts_from_line(search_line)
                         for amount, confidence in amounts:
+                            # ULTRA HIGH priority for specific transaction amounts - with enhanced validation
+                            if keyword in ['利用金額', '利用額', '入金額', '領収金額']:
+                                # Enhanced validation for ultra-high priority keywords
+                                if self._validate_amount_for_keyword(amount, keyword, search_line, line, position):
+                                    keyword_priority = 2000  # Highest priority for specific amounts
+                                    # Bonus if amount is on same line as keyword
+                                    if position == 'current':
+                                        keyword_priority += 500
+                                    # Higher bonus if amount is on previous line 
+                                    elif position == 'previous':
+                                        keyword_priority += 100
+                                    logger.debug(f"High-priority keyword '{keyword}' validated for amount ¥{amount} (priority: {keyword_priority})")
+                                else:
+                                    # Failed validation - give low priority instead of ultra-high
+                                    keyword_priority = 50  # Low priority
+                                    logger.debug(f"High-priority keyword '{keyword}' validation FAILED for amount ¥{amount} in line: {search_line.strip()}")
                             # VERY HIGH priority for 合計 (total) - with or without space
-                            if keyword in ['合計', '合 計']:
+                            elif keyword in ['合計', '合 計']:
                                 keyword_priority = 1000  # Extremely high priority
                                 # Bonus if amount is on same line as 合計
                                 if position == 'current':
@@ -252,6 +292,18 @@ class JapaneseReceiptParser:
         """Extract all potential amounts from a line with confidence scores."""
         amounts = []
         
+        # First check if this line contains non-amount patterns
+        non_amount_numbers = set()
+        for pattern in self.non_amount_patterns:
+            for match in re.finditer(pattern, line):
+                try:
+                    # Extract the numeric part and convert to int
+                    number_str = match.group(1).replace('-', '').replace(',', '')
+                    if number_str.isdigit():
+                        non_amount_numbers.add(int(number_str))
+                except (ValueError, IndexError):
+                    continue
+        
         for pattern_idx, pattern in enumerate(self.amount_patterns):
             matches = re.finditer(pattern, line)
             for match in matches:
@@ -263,6 +315,24 @@ class JapaneseReceiptParser:
                     # Skip obviously wrong amounts
                     if amount < 10 or amount > 1000000:  # ¥10 to ¥1M reasonable range
                         continue
+                    
+                    # CRITICAL: Skip if this number was identified as a non-amount
+                    if amount in non_amount_numbers:
+                        logger.debug(f"Skipping amount {amount} - identified as non-amount number in line: {line.strip()}")
+                        continue
+                    
+                    # Skip years that look like amounts (2020-2030 range)
+                    if 2020 <= amount <= 2030:
+                        # Check if this number appears in a date context
+                        if any(date_indicator in line for date_indicator in ['年', '月', '日', '-', '/', '時', '分']):
+                            continue
+                    
+                    # Additional validation for suspicious standalone numbers
+                    if pattern_idx == 6:  # Standalone number pattern (highest risk)
+                        # Extra validation for standalone numbers
+                        if self._is_suspicious_standalone_number(amount, line, match.start(), match.end()):
+                            logger.debug(f"Skipping suspicious standalone number {amount} in line: {line.strip()}")
+                            continue
                     
                     # Calculate confidence based on pattern priority and context
                     confidence = 20 - pattern_idx * 2  # Higher priority patterns get higher confidence
@@ -547,3 +617,115 @@ class JapaneseReceiptParser:
                 found_keywords.append(keyword)
         
         return found_keywords
+    
+    def _is_suspicious_standalone_number(self, amount: int, line: str, start_pos: int, end_pos: int) -> bool:
+        """Check if a standalone number is suspicious (likely not an amount)."""
+        
+        # Check context around the number
+        before_context = line[:start_pos].lower()
+        after_context = line[end_pos:].lower()
+        full_context = line.lower()
+        
+        # Suspicious if preceded by these patterns
+        suspicious_prefixes = [
+            '登録', 'id', 'no.', 'no:', 'tel', '電話', 'phone', '番号', 
+            '口座', '取引', '参照', '郵便', '〒', '#', '第'
+        ]
+        
+        # Suspicious if followed by these patterns
+        suspicious_suffixes = [
+            '号', '番', 'id', 'no', 'tel', '時', '分', '秒'
+        ]
+        
+        # Check prefixes (within 10 characters before)
+        for prefix in suspicious_prefixes:
+            if prefix in before_context[-10:]:
+                return True
+        
+        # Check suffixes (within 5 characters after)
+        for suffix in suspicious_suffixes:
+            if suffix in after_context[:5]:
+                return True
+        
+        # Suspicious if the line contains registration/ID indicators
+        id_indicators = ['登録番号', '取引番号', 'registration', 'id:', 'tel:', '電話番号']
+        if any(indicator in full_context for indicator in id_indicators):
+            return True
+        
+        # Suspicious if it's a small number (< 1000) without clear amount context
+        if amount < 1000:
+            # Allow small amounts only if they have clear amount context
+            amount_context = ['円', '¥', '合計', '税込', '料金', '代金', '金額']
+            if not any(context in full_context for context in amount_context):
+                return True
+        
+        # Suspicious if it looks like a year (but outside 2020-2030 range)
+        if 1900 <= amount <= 2100:
+            # Check if it appears in a date-like context
+            if any(date_indicator in full_context for date_indicator in ['年', '月', '日']):
+                return True
+        
+        return False
+    
+    def _validate_amount_for_keyword(self, amount: int, keyword: str, amount_line: str, keyword_line: str, position: str) -> bool:
+        """Validate that an amount is genuinely associated with a high-priority keyword."""
+        
+        amount_line_lower = amount_line.lower()
+        keyword_line_lower = keyword_line.lower()
+        
+        # For ultra-high priority keywords, apply strict validation
+        if keyword in ['利用金額', '利用額', '入金額', '領収金額']:
+            
+            # 1. Check if amount appears in proper format near keyword
+            if position == 'current':
+                # On same line - check proximity and format
+                keyword_pos = keyword_line.find(keyword)
+                amount_str = str(amount)
+                formatted_amounts = [f'¥{amount}', f'{amount}円', f'{amount:,}', f'¥{amount:,}']
+                
+                # Look for the amount in various formats near the keyword
+                found_proper_format = False
+                for fmt_amount in formatted_amounts:
+                    amount_pos = amount_line.find(fmt_amount)
+                    if amount_pos >= 0:
+                        # Check if amount is within reasonable distance of keyword (within 50 characters)
+                        if abs(amount_pos - keyword_pos) <= 50:
+                            found_proper_format = True
+                            break
+                
+                if not found_proper_format:
+                    # Check if at least the raw number appears near keyword with colon/space
+                    keyword_context = amount_line[max(0, keyword_pos):keyword_pos + len(keyword) + 30]
+                    if not any(sep in keyword_context for sep in [':', '：', ' ']) or str(amount) not in keyword_context:
+                        logger.debug(f"Amount {amount} not in proper format near keyword '{keyword}' on same line")
+                        return False
+            
+            # 2. Reject if amount line contains suspicious indicators
+            suspicious_indicators = ['登録番号', '取引番号', 'id:', 'tel:', '電話', '番号']
+            if any(indicator in amount_line_lower for indicator in suspicious_indicators):
+                logger.debug(f"Amount {amount} rejected - suspicious indicators in line: {amount_line.strip()}")
+                return False
+            
+            # 3. Size validation - amounts for these keywords should typically be reasonable
+            if amount < 100:  # Very small amounts are suspicious for transaction totals
+                # Allow small amounts only if they appear in very clear format
+                if position != 'current' or not any(fmt in amount_line for fmt in [f'¥{amount}', f'{amount}円']):
+                    logger.debug(f"Amount {amount} rejected - too small and not in clear format")
+                    return False
+            
+            # 4. For amounts on adjacent lines, ensure no competing context
+            if position in ['previous', 'next']:
+                # Check if the amount line has its own keyword that would compete
+                competing_keywords = ['小計', '税抜', '消費税', '手数料', 'お釣り', '残高']
+                if any(comp_kw in amount_line for comp_kw in competing_keywords):
+                    logger.debug(f"Amount {amount} rejected - competing keyword in amount line: {amount_line.strip()}")
+                    return False
+                
+                # For adjacent lines, prefer formatted amounts
+                if not any(fmt in amount_line for fmt in [f'¥{amount}', f'{amount}円', f'{amount:,}']):
+                    # Raw numbers on adjacent lines are risky - apply extra validation
+                    if amount < 1000:  # Extra suspicious for small raw numbers
+                        logger.debug(f"Amount {amount} rejected - raw small number on adjacent line")
+                        return False
+        
+        return True

@@ -176,3 +176,6 @@ Thumbs.db
 *.temp
 temp/
 tmp/
+
+# ChatGPT prompt file (not part of actual project functionality)
+GPTprompt.md

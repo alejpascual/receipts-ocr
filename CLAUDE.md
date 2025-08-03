@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Python CLI tool for batch-processing Japanese receipts using YomiToku OCR. Extracts transaction data (date, amount, category, description) and exports to Excel with a review queue for uncertain items. Designed for ~700 receipt processing with Apple Silicon optimization.
+A Python CLI tool for batch-processing Japanese receipts using YomiToku OCR. Supports PDF and image files (PNG, JPG, JPEG). Extracts transaction data (date, amount, category, description) and exports to Excel with a review queue for uncertain items. Designed for ~700 receipt processing with Apple Silicon optimization.
 
 ## Common Commands
 
@@ -45,7 +45,7 @@ tail -f logs/run.log
 ## Architecture Overview
 
 ### Core Pipeline (6 stages)
-1. **File Discovery**: Hash-based duplicate detection, recursive PDF search
+1. **File Discovery**: Hash-based duplicate detection, recursive search for PDF and image files (PNG/JPG/JPEG)
 2. **Text Extraction**: Embedded text detection → OCR fallback (YomiToku)  
 3. **Data Parsing**: Japanese date/amount/vendor extraction with 和暦 support
 4. **Classification**: Rule-based categorization using fuzzy matching
@@ -62,7 +62,7 @@ tail -f logs/run.log
 - **`regenerate_clean.py`**: Reprocessing script using cached OCR results
 
 ### Configuration
-- **`rules/categories.yml`**: 13 predefined business categories with Japanese/English keywords
+- **`rules/categories.yml`**: 15 predefined business categories with Japanese/English keywords (including Software/Services for subscriptions)
 - **`requirements.txt`**: Python dependencies including YomiToku, openpyxl, rapidfuzz
 - **`setup.py`**: Package configuration and CLI entry point
 
@@ -121,10 +121,19 @@ tail -f logs/run.log
 ### Output Structure
 ```
 out/
-├── transactions.xlsx      # 5 columns: File Name, Date, Amount, Category, Description
-├── ocr_json/             # Cached OCR JSON per PDF
-└── logs/run.log          # Processing logs with warnings/errors
+├── transactions_June_2025.xlsx  # Single consolidated sheet named by period
+├── ocr_json/                   # Cached OCR JSON per PDF
+└── logs/run.log               # Processing logs with warnings/errors
 ```
+
+**Excel Format (Single Sheet):**
+- **Filename**: Auto-detected from transaction dates (e.g., "transactions_August_2024.xlsx")
+- **Fallback naming**: "transactions_Mixed_Months.xlsx" or "transactions_Unknown_Period.xlsx" 
+- **Main Columns**: File Name, Date, Amount, Category, Description, Review Status, Review Reason, Raw Snippet
+- **Review Status**: "OK" for normal transactions, "REVIEW" for items needing manual attention  
+- **Review fields**: Only populated for transactions requiring review
+- **Summary Section**: Key statistics included at the top of the sheet (total transactions, amounts, category breakdown)
+- **Design Goal**: Single tab per month for easy integration into monthly tracking Excel
 
 ## Licensing and Legal
 - YomiToku: CC BY-NC 4.0 (non-commercial use only)

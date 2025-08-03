@@ -8,6 +8,8 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import sys
+from datetime import datetime
+from collections import Counter
 
 from .ocr import OCRProcessor
 from .parse import JapaneseReceiptParser
@@ -24,6 +26,46 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def determine_month_year_from_transactions(transactions: List[Dict[str, Any]]) -> str:
+    """
+    Determine the most common month/year from transaction dates.
+    
+    Args:
+        transactions: List of transaction dictionaries with date fields
+        
+    Returns:
+        String in format "August 2024" or "Mixed Months" if no clear majority
+    """
+    if not transactions:
+        return "Unknown Period"
+    
+    # Extract month/year from valid dates
+    month_years = []
+    for transaction in transactions:
+        date_str = transaction.get('date')
+        if date_str:
+            try:
+                # Parse ISO date format (YYYY-MM-DD)
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                month_year = date_obj.strftime('%B %Y')  # e.g., "August 2024"
+                month_years.append(month_year)
+            except ValueError:
+                continue
+    
+    if not month_years:
+        return "Unknown Period"
+    
+    # Find most common month/year
+    month_year_counts = Counter(month_years)
+    most_common = month_year_counts.most_common(1)[0]
+    
+    # If the most common month/year represents >50% of transactions, use it
+    if most_common[1] / len(month_years) > 0.5:
+        return most_common[0]
+    else:
+        return "Mixed Months"
 
 
 class ReceiptProcessor:
@@ -68,48 +110,59 @@ class ReceiptProcessor:
             'review_items': 0
         }
     
-    def find_pdf_files(self, input_dir: Path) -> List[Path]:
-        """Find all PDF files in the input directory."""
-        pdf_files = []
+    def find_receipt_files(self, input_dir: Path) -> List[Path]:
+        """Find all receipt files (PDF and image formats) in the input directory."""
+        receipt_files = []
         
-        for pattern in ['*.pdf', '*.PDF']:
-            pdf_files.extend(input_dir.glob(pattern))
+        # Support for PDFs and image formats
+        patterns = ['*.pdf', '*.PDF', '*.png', '*.PNG', '*.jpg', '*.JPG', '*.jpeg', '*.JPEG']
+        
+        for pattern in patterns:
+            receipt_files.extend(input_dir.glob(pattern))
             # Also search subdirectories
-            pdf_files.extend(input_dir.glob(f'**/{pattern}'))
+            receipt_files.extend(input_dir.glob(f'**/{pattern}'))
         
         # Remove duplicates and sort
-        pdf_files = sorted(list(set(pdf_files)))
-        logger.info(f"Found {len(pdf_files)} PDF files in {input_dir}")
+        receipt_files = sorted(list(set(receipt_files)))
+        logger.info(f"Found {len(receipt_files)} receipt files (PDF/PNG/JPG) in {input_dir}")
         
-        return pdf_files
+        return receipt_files
     
     def process_single_file(self, 
-                          pdf_path: Path, 
+                          receipt_path: Path, 
                           output_dir: Path) -> Dict[str, Any]:
         """
-        Process a single PDF file.
+        Process a single receipt file (PDF or image).
         
         Args:
-            pdf_path: Path to PDF file
+            receipt_path: Path to receipt file (PDF/PNG/JPG)
             output_dir: Output directory for OCR JSON
             
         Returns:
             Dictionary with extraction results
         """
         try:
-            logger.debug(f"Processing {pdf_path.name}")
+            logger.debug(f"Processing {receipt_path.name}")
             
-            # Check for embedded text first (unless force_ocr is enabled)
-            if not self.force_ocr and self.ocr_processor.has_embedded_text(pdf_path):
-                text = self.ocr_processor.extract_embedded_text(pdf_path)
+            # Determine if this is a PDF or image file
+            is_pdf = receipt_path.suffix.lower() == '.pdf'
+            
+            # Check for embedded text first (only for PDFs, unless force_ocr is enabled)
+            if is_pdf and not self.force_ocr and self.ocr_processor.has_embedded_text(receipt_path):
+                text = self.ocr_processor.extract_embedded_text(receipt_path)
                 ocr_confidence = 0.95  # High confidence for embedded text
                 if self.debug:
-                    logger.debug(f"Using embedded text for {pdf_path.name}")
+                    logger.debug(f"Using embedded text for {receipt_path.name}")
             else:
-                # Use OCR
+                # Use OCR (for PDFs without embedded text or for image files)
                 if self.debug:
-                    logger.debug(f"Using OCR for {pdf_path.name} (force_ocr={self.force_ocr})")
-                ocr_result = self.ocr_processor.extract_text_from_pdf(pdf_path, output_dir)
+                    logger.debug(f"Using OCR for {receipt_path.name} (force_ocr={self.force_ocr}, is_pdf={is_pdf})")
+                
+                if is_pdf:
+                    ocr_result = self.ocr_processor.extract_text_from_pdf(receipt_path, output_dir)
+                else:
+                    # For image files, use direct OCR
+                    ocr_result = self.ocr_processor.extract_text_from_image(receipt_path, output_dir)
                 text = ocr_result['full_text']
                 ocr_confidence = ocr_result['confidence']
             
@@ -126,7 +179,7 @@ class ReceiptProcessor:
             
             # Check if needs review
             self.review_queue.add_from_extraction(
-                file_path=str(pdf_path),
+                file_path=str(receipt_path),
                 date=date,
                 amount=amount,
                 category=category,
@@ -136,7 +189,7 @@ class ReceiptProcessor:
             )
             
             result = {
-                'file_path': str(pdf_path),
+                'file_path': str(receipt_path),
                 'date': date,
                 'amount': amount,
                 'category': category,
@@ -151,18 +204,18 @@ class ReceiptProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"Failed to process {pdf_path}: {e}")
+            logger.error(f"Failed to process {receipt_path}: {e}")
             self.stats['failed'] += 1
             
             # Add to review queue as failed item
             self.review_queue.add_item(
-                file_path=str(pdf_path),
+                file_path=str(receipt_path),
                 reason=f"Processing failed: {str(e)}",
                 raw_snippet=f"Error: {str(e)}"
             )
             
             return {
-                'file_path': str(pdf_path),
+                'file_path': str(receipt_path),
                 'date': None,
                 'amount': None,
                 'category': 'Other',
@@ -188,11 +241,11 @@ class ReceiptProcessor:
             List of extraction results
         """
         # Find all PDF files
-        pdf_files = self.find_pdf_files(input_dir)
-        self.stats['total_files'] = len(pdf_files)
+        receipt_files = self.find_receipt_files(input_dir)
+        self.stats['total_files'] = len(receipt_files)
         
-        if not pdf_files:
-            logger.warning("No PDF files found!")
+        if not receipt_files:
+            logger.warning("No receipt files found!")
             return []
         
         # Create output directory
@@ -205,19 +258,19 @@ class ReceiptProcessor:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all jobs
             future_to_file = {
-                executor.submit(self.process_single_file, pdf_file, ocr_output_dir): pdf_file
-                for pdf_file in pdf_files
+                executor.submit(self.process_single_file, receipt_file, ocr_output_dir): receipt_file
+                for receipt_file in receipt_files
             }
             
             # Process results with progress bar
-            with tqdm(total=len(pdf_files), desc="Processing receipts") as pbar:
+            with tqdm(total=len(receipt_files), desc="Processing receipts") as pbar:
                 for future in as_completed(future_to_file):
-                    pdf_file = future_to_file[future]
+                    receipt_file = future_to_file[future]
                     try:
                         result = future.result()
                         results.append(result)
                     except Exception as e:
-                        logger.error(f"Exception processing {pdf_file}: {e}")
+                        logger.error(f"Exception processing {receipt_file}: {e}")
                         self.stats['failed'] += 1
                     
                     pbar.update(1)
@@ -321,8 +374,18 @@ def run(input_dir: Path,
                 )
                 transactions.append(transaction)
         
+        # Determine month/year for filename
+        month_year = determine_month_year_from_transactions(transactions)
+        
+        # Create filename with month/year
+        if month_year in ["Unknown Period", "Mixed Months"]:
+            filename = f"transactions_{month_year.replace(' ', '_')}.xlsx"
+        else:
+            # Convert "August 2024" to "transactions_August_2024.xlsx"
+            filename = f"transactions_{month_year.replace(' ', '_')}.xlsx"
+        
         # Export to Excel
-        excel_path = output_dir / 'transactions.xlsx'
+        excel_path = output_dir / filename
         exporter = ExcelExporter(excel_path)
         exporter.export_transactions(
             transactions=transactions,
@@ -339,6 +402,7 @@ def run(input_dir: Path,
         click.echo(f"Failed: {processor.stats['failed']}")
         click.echo(f"Exported transactions: {len(transactions)}")
         click.echo(f"Items needing review: {len(processor.review_queue.items)}")
+        click.echo(f"Period detected: {month_year}")
         click.echo(f"\\nOutput files:")
         click.echo(f"  - Excel: {excel_path}")
         click.echo(f"  - OCR JSON: {output_dir / 'ocr_json'}")

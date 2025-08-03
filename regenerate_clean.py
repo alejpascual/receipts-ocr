@@ -4,6 +4,8 @@
 import sys
 import json
 from pathlib import Path
+from datetime import datetime
+from collections import Counter
 
 # Add src to path
 sys.path.append('src')
@@ -12,6 +14,46 @@ from parse import JapaneseReceiptParser
 from classify import CategoryClassifier
 from export import ExcelExporter
 from review import ReviewQueue
+
+
+def determine_month_year_from_transactions(transactions):
+    """
+    Determine the most common month/year from transaction dates.
+    
+    Args:
+        transactions: List of transaction dictionaries with date fields
+        
+    Returns:
+        String in format "August 2024" or "Mixed Months" if no clear majority
+    """
+    if not transactions:
+        return "Unknown Period"
+    
+    # Extract month/year from valid dates
+    month_years = []
+    for transaction in transactions:
+        date_str = transaction.get('date')
+        if date_str:
+            try:
+                # Parse ISO date format (YYYY-MM-DD)
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                month_year = date_obj.strftime('%B %Y')  # e.g., "August 2024"
+                month_years.append(month_year)
+            except ValueError:
+                continue
+    
+    if not month_years:
+        return "Unknown Period"
+    
+    # Find most common month/year
+    month_year_counts = Counter(month_years)
+    most_common = month_year_counts.most_common(1)[0]
+    
+    # If the most common month/year represents >50% of transactions, use it
+    if most_common[1] / len(month_years) > 0.5:
+        return most_common[0]
+    else:
+        return "Mixed Months"
 
 def main():
     # Initialize components
@@ -96,8 +138,18 @@ def main():
             print(f"Error processing {json_file}: {e}")
             continue
     
+    # Determine month/year for filename
+    month_year = determine_month_year_from_transactions(transactions)
+    
+    # Create filename with month/year
+    if month_year in ["Unknown Period", "Mixed Months"]:
+        filename = f"transactions_{month_year.replace(' ', '_')}.xlsx"
+    else:
+        # Convert "August 2024" to "transactions_August_2024.xlsx"
+        filename = f"transactions_{month_year.replace(' ', '_')}.xlsx"
+    
     # Export to new Excel with clean descriptions AND review items
-    excel_path = Path('final-clean-descriptions.xlsx')
+    excel_path = Path(filename)
     exporter = ExcelExporter(excel_path)
     exporter.export_transactions(transactions, review_queue.items, include_summary=True)
     

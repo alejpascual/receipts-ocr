@@ -176,6 +176,114 @@ class OCRProcessor:
             logger.error(f"OCR failed for {pdf_path}: {e}")
             raise
     
+    def extract_text_from_image(self, image_path: Path, output_dir: Path) -> Dict[str, Any]:
+        """
+        Extract text from image using YomiToku.
+        
+        Args:
+            image_path: Path to image file (PNG/JPG/JPEG)
+            output_dir: Directory to save OCR JSON results
+            
+        Returns:
+            Dictionary with OCR results and metadata
+        """
+        try:
+            file_hash = self.get_file_hash(image_path)
+            
+            # Check if already processed
+            json_path = output_dir / f"{image_path.stem}_{file_hash}.json"
+            if json_path.exists():
+                logger.info(f"Loading cached OCR result for {image_path.name}")
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            
+            logger.info(f"Processing {image_path.name} with YomiToku...")
+            
+            # Load image directly
+            import cv2
+            img_array = cv2.imread(str(image_path))
+            if img_array is None:
+                raise ValueError(f"Could not load image: {image_path}")
+            
+            # Convert BGR to RGB for YomiToku
+            img_array = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
+            
+            # Process with YomiToku
+            ocr_result = {
+                'file_path': str(image_path),
+                'file_hash': file_hash,
+                'pages': [],
+                'full_text': '',
+                'confidence': 0.0
+            }
+            
+            async def process_image():
+                # Workaround for YomiToku bug: set img attribute
+                self.analyzer.img = img_array
+                
+                # Process with YomiToku
+                result = await self.analyzer.run(img_array)
+                return result
+            
+            # Run async processing
+            result = asyncio.run(process_image())
+            
+            page_data = {
+                'page_number': 1,
+                'blocks': [],
+                'text': ''
+            }
+            
+            page_text_parts = []
+            total_confidence = 0
+            block_count = 0
+            
+            # Extract text from YomiToku result (tuple format)
+            if isinstance(result, tuple) and len(result) > 0:
+                document_schema = result[0]
+                
+                # Use words directly since they contain the actual text
+                if hasattr(document_schema, 'words') and document_schema.words:
+                    word_texts = []
+                    word_confidences = []
+                    
+                    for word in document_schema.words:
+                        if hasattr(word, 'content') and word.content.strip():
+                            word_texts.append(word.content)
+                            word_confidences.append(getattr(word, 'rec_score', 0.8))
+                    
+                    if word_texts:
+                        # Create one block with all text
+                        combined_text = '\n'.join(word_texts)  # Use newlines to separate words for better parsing
+                        avg_confidence = sum(word_confidences) / len(word_confidences) if word_confidences else 0.8
+                        
+                        block_data = {
+                            'text': combined_text,
+                            'confidence': avg_confidence
+                        }
+                        page_data['blocks'].append(block_data)
+                        page_text_parts.append(combined_text)
+                        
+                        total_confidence += avg_confidence
+                        block_count += 1
+            
+            page_data['text'] = '\\n'.join(page_text_parts)
+            ocr_result['pages'].append(page_data)
+            ocr_result['full_text'] = page_data['text']
+            ocr_result['confidence'] = total_confidence / block_count if block_count > 0 else 0.7
+            
+            # Save OCR result to JSON
+            output_dir.mkdir(parents=True, exist_ok=True)
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(ocr_result, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"OCR completed for {image_path.name} with confidence: {ocr_result['confidence']:.2f}")
+            return ocr_result
+            
+        except Exception as e:
+            logger.error(f"OCR failed for {image_path}: {e}")
+            raise
+    
     def has_embedded_text(self, pdf_path: Path) -> bool:
         """
         Check if PDF has GOOD QUALITY embedded text (to skip OCR if possible).
