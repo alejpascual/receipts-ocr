@@ -138,6 +138,76 @@ out/
 - **Summary Section**: Key statistics included at the top of the sheet (total transactions, amounts, category breakdown)
 - **Design Goal**: Single tab per month for easy integration into monthly tracking Excel
 
+## Critical Fixes and Learnings
+
+### Amount Parsing Issues Fixed (August 2025)
+
+**Issue**: Keyword-based amounts being overridden by frequency detection
+- **Problem**: Amounts near "合計" (total) had lower priority than frequent small amounts
+- **Root Cause**: Frequency detection (300 points × count) beat keyword priority (1000-1500)
+- **Fix**: Boosted keyword priorities: 合計 → 5000-6000, other totals → 4000+
+- **Files Changed**: `src/parse.py` lines 200-218
+- **Testing**: Verified with receipts extracting wrong totals (¥780 vs ¥8,580)
+
+**Issue**: OCR spacing problems (e.g., "1, 738円" → ¥738 instead of ¥1,738)
+- **Root Cause**: Amount patterns didn't handle OCR spaces in numbers
+- **Fix**: Enhanced patterns with `\s*` tolerance, clean spaces in extraction
+- **Files Changed**: `src/parse.py` lines 33-41, 350-355
+- **Testing**: Verified with 2025-06-14 19-48.pdf and similar receipts
+
+**Issue**: OCR digit misreading (e.g., "6" read as "8" giving ¥3,830 vs ¥3,630)
+- **Root Cause**: OCR confidence issues with similar-looking digits
+- **Fix**: Manual OCR JSON correction for specific cases
+- **Files Changed**: Individual OCR JSON files as needed
+- **Prevention**: Enhanced frequency detection helps catch obvious errors
+
+### Excel Export Issues Fixed
+
+**Issue**: Verbose OCR JSON filenames in Excel (e.g., "file_hash123.json")
+- **Root Cause**: Review items used `Path(item.file_path).name` instead of clean names
+- **Fix**: Added clean filename logic for review items in export
+- **Files Changed**: `src/export.py` lines 264-269, `regenerate_clean.py` lines 90-96
+- **Result**: All filenames now show as "2025-06-14 19-48.pdf" format
+
+**Issue**: Random sorting order making cross-checking difficult
+- **Fix**: Alphabetical sorting for both OK and review transactions
+- **Files Changed**: `src/export.py` lines 172-173, 278-279
+- **Result**: Consistent filename order matching original folder structure
+
+**Issue**: Missing month/year in Excel title
+- **Fix**: Dynamic period detection from transaction dates
+- **Files Changed**: `src/export.py` _determine_period_from_transactions method
+- **Result**: Titles like "TRANSACTION SUMMARY - JUNE 2025"
+
+### File Processing Issues Fixed
+
+**Issue**: Missing receipts from subfolders
+- **Example**: Invoice(5830_4634).pdf not processed from "June 2025/" subfolder
+- **Fix**: Manual processing of missed files and inclusion in OCR cache
+- **Prevention**: Always verify file counts: input vs processed
+
+**Issue**: Output file location confusion
+- **Root Cause**: Hard-coded paths in regenerate_clean.py
+- **Fix**: Environment variables (OCR_DIR, OUTPUT_DIR) with sensible defaults
+- **Files Changed**: `regenerate_clean.py` lines 67, 157
+
+### Development Workflow Lessons
+
+**CRITICAL**: Always delete old Excel before regenerating to avoid confusion
+**CRITICAL**: Apply systematic fixes to parsing logic, not one-off manual corrections
+**CRITICAL**: Test fixes with multiple receipts to ensure no regressions
+
+**Verification Process**:
+1. Count input files vs OCR JSON files
+2. Test parsing with debug scripts before regenerating
+3. Check sample transactions in output logs
+4. Verify Excel contains expected transaction count
+
+### Known Edge Cases
+- Very poor OCR quality (confidence < 0.5) may require manual review
+- Receipts with unusual layouts may need category rule adjustments
+- Frequency detection may still fail with highly repetitive amounts (>10 occurrences)
+
 ## Licensing and Legal
 - YomiToku: CC BY-NC 4.0 (non-commercial use only)
 - Commercial use requires separate YomiToku license
