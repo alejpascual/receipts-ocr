@@ -39,7 +39,7 @@ class ExcelExporter:
             # Status colors - Sophisticated, not garish
             'ok_bg': '10B981',           # Emerald green (success)
             'ok_text': 'FFFFFF',         # White text
-            'review_bg': 'F59E0B',       # Warm amber (attention needed)
+            'review_bg': 'DC2626',       # Beautiful red (needs attention)
             'review_text': 'FFFFFF',     # White text
             
             # Section headers
@@ -120,7 +120,7 @@ class ExcelExporter:
         title_cell = ws.cell(row=current_row, column=1, value="ALL TRANSACTIONS")
         title_cell.font = Font(bold=True, size=16, color=self.colors['section_text'])
         title_cell.fill = PatternFill(start_color=self.colors['section_bg'], end_color=self.colors['section_bg'], fill_type="solid")
-        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        title_cell.alignment = Alignment(horizontal="left", vertical="center")
         title_cell.border = self.styles['thin_border']
         # Merge title across all columns for dramatic effect
         ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=len(headers))
@@ -261,7 +261,12 @@ class ExcelExporter:
         
         # Add any review items that don't have corresponding transactions
         for item in review_items:
-            file_name = Path(item.file_path).name
+            # Clean the filename properly - remove hash suffix and use .pdf extension
+            json_file_name = Path(item.file_path).stem
+            if '_' in json_file_name:
+                file_name = '_'.join(json_file_name.split('_')[:-1]) + '.pdf'
+            else:
+                file_name = json_file_name + '.pdf'
             # Check if this review item already has a transaction
             has_transaction = any(t.get('file_name') == file_name for t in transactions)
             
@@ -303,7 +308,7 @@ class ExcelExporter:
         title_cell = ws.cell(row=start_row, column=1, value=title)
         title_cell.font = Font(bold=True, size=18, color=self.colors['summary_accent'])
         title_cell.fill = PatternFill(start_color=self.colors['summary_bg'], end_color=self.colors['summary_bg'], fill_type="solid")
-        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        title_cell.alignment = Alignment(horizontal="left", vertical="center")
         title_cell.border = self.styles['thin_border']
         # Merge title across multiple columns for impact
         ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
@@ -355,7 +360,7 @@ class ExcelExporter:
             section_title.font = Font(bold=True, size=12, color=self.colors['summary_accent'])
             section_title.fill = PatternFill(start_color=self.colors['summary_bg'], end_color=self.colors['summary_bg'], fill_type="solid")
             section_title.border = self.styles['thin_border']
-            section_title.alignment = Alignment(horizontal="center")
+            section_title.alignment = Alignment(horizontal="left", vertical="center")
             ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=3)
             current_row += 1
             

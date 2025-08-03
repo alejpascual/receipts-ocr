@@ -87,9 +87,17 @@ def main():
             # Get OCR confidence from the data
             ocr_confidence = data.get('confidence', 0.8)
             
-            # Add to review queue if needed (this will check confidence thresholds)
+            # Extract clean file name from JSON file path BEFORE creating review queue
+            original_file_name = Path(json_file).stem
+            # Remove the hash suffix (everything after last underscore)
+            if '_' in original_file_name:
+                clean_file_path = '_'.join(original_file_name.split('_')[:-1]) + '.pdf'
+            else:
+                clean_file_path = original_file_name + '.pdf'
+            
+            # Add to review queue with CLEAN filename (this will check confidence thresholds)
             review_queue.add_from_extraction(
-                file_path=str(json_file),
+                file_path=clean_file_path,
                 date=date,
                 amount=amount,
                 category=category,
@@ -110,23 +118,16 @@ def main():
                     category=category,
                     category_confidence=category_confidence,
                     ocr_confidence=ocr_confidence,
-                    file_path=str(json_file)
+                    file_path=clean_file_path
                 )
                 
                 if not needs_review:
                     # Generate CLEAN description using category
                     description = parser.extract_description_context(text, vendor, amount, category)
                     
-                    # Extract clean file name from JSON file path
-                    original_file_name = Path(json_file).stem
-                    # Remove the hash suffix (everything after last underscore)
-                    if '_' in original_file_name:
-                        clean_file_name = '_'.join(original_file_name.split('_')[:-1]) + '.pdf'
-                    else:
-                        clean_file_name = original_file_name + '.pdf'
-                    
+                    # Use the same clean filename we created above
                     transaction = {
-                        'file_name': clean_file_name,
+                        'file_name': clean_file_path,
                         'date': date,
                         'amount': amount,
                         'category': category,

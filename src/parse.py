@@ -29,14 +29,15 @@ class JapaneseReceiptParser:
         ]
         
         # Amount patterns - Japanese specific, prioritized order
+        # Enhanced to handle OCR spacing issues like "1, 738円" → "1,738円"
         self.amount_patterns = [
-            r'合計\s*¥?([0-9,]+)',  # 合計 followed by amount (highest priority)
-            r'¥([0-9,]+)\s*(?=\s|$|\n)',   # Clean yen amounts
-            r'([0-9,]+)円',  # Numbers with 円
-            r'¥([0-9,]+)-?',   # Yen symbol with optional trailing dash  
-            r'(?:総計|総合計|お買上げ|税込合計)\s*:?\s*¥?([0-9,]+)',  # Other total keywords
-            r'([0-9,]+)(?=\s*(?:合計|総計|総合計|お買上げ))',  # Numbers before total keywords
-            r'\b([1-9][0-9]{2,6})\b',  # Standalone numbers (lowest priority)
+            r'合計\s*¥?([0-9,\s]+)',  # 合計 followed by amount (highest priority) - with space tolerance
+            r'¥\s*([0-9,\s]+)\s*(?=\s|$|\n|円)',   # Clean yen amounts with space tolerance
+            r'([0-9,\s]+)円',  # Numbers with 円 - with space tolerance
+            r'¥\s*([0-9,\s]+)-?',   # Yen symbol with optional trailing dash - with space tolerance
+            r'(?:総計|総合計|お買上げ|税込合計)\s*:?\s*¥?\s*([0-9,\s]+)',  # Other total keywords - with space tolerance
+            r'([0-9,\s]+)(?=\s*(?:合計|総計|総合計|お買上げ))',  # Numbers before total keywords - with space tolerance
+            r'\b([1-9][0-9\s]{2,8})\b',  # Standalone numbers (lowest priority) - with space tolerance
         ]
         
         # Total keywords (in order of preference) - 合計 is highest priority
@@ -48,7 +49,9 @@ class JapaneseReceiptParser:
         # Keywords to avoid (tax, subtotal, change, etc.)
         self.avoid_keywords = [
             '小計', '税抜', '本体価格', '内税', '消費税', '税額', '税金', 
-            '対象額', '課税', 'おつり', 'お釣り', '釣り', '預り', 'お預り', '内消費税',
+            '対象額', '課税', 'おつり', 'お釣り', '釣り', '預り', 'お預り', 
+            '内消費税', '内消費費税', '内消費費税等', '消費費税', '消費税等',
+            '税込計', '税込合計', '軽減税率',
             'ATM手数料', 'ATM利用手数料', '手数料', '振込手数料',
             '入金後残高', '残高', '現在残高', '利用可能残高', 'ポイント残高',
             '年', '月', '日', '時', '分', '秒', '取引番号', '登録番号', '電話番号'
@@ -246,23 +249,59 @@ class JapaneseReceiptParser:
                 for amount, confidence in amounts:
                     amount_candidates.append((amount, confidence, line))
         
+        # ENHANCED: Even if we found keyword-based amounts, also add standalone amounts for frequency analysis
+        # This helps when the main amount appears multiple times but not always near keywords
+        all_standalone_amounts = []
+        for line in lines:
+            amounts = self._extract_amounts_from_line(line)
+            for amount, confidence in amounts:
+                all_standalone_amounts.append((amount, confidence, line))
+        
+        # For each standalone amount, check if it appears frequently and boost its priority
+        standalone_frequency = {}
+        for amount, _, _ in all_standalone_amounts:
+            standalone_frequency[amount] = standalone_frequency.get(amount, 0) + 1
+        
+        # Add high-frequency standalone amounts to candidates with boosted priority
+        # CRITICAL FIX: Always add frequent amounts with high priority, even if they exist from keyword search
+        # This ensures that frequently occurring amounts (like main totals) aren't overshadowed by penalties
+        for amount, confidence, line in all_standalone_amounts:
+            frequency = standalone_frequency[amount]
+            if frequency >= 3:  # Amount appears 3+ times
+                # Calculate a very high priority based on frequency - this should usually win
+                frequency_priority = confidence + (frequency * 300)  # 300 points per occurrence (increased from 200)
+                
+                # Always add frequent amounts, even if they exist from keyword search
+                # This gives them a chance to override any penalties from avoid keywords
+                amount_candidates.append((amount, frequency_priority, line))
+                logger.debug(f"Added high-frequency standalone amount ¥{amount} (appears {frequency} times, priority: {frequency_priority})")
+        
         if not amount_candidates:
             logger.warning("No amount found in text")
             return None
         
-        # SMART RECOVERY: If the best amount is suspiciously low (≤500), try to find a better one
+        # SMART RECOVERY: If the best amount is suspiciously low (≤800), try to find a better one
         best_amount = max(amount_candidates, key=lambda x: x[1])
         
-        if best_amount[0] <= 500:
+        if best_amount[0] <= 800:
             logger.info(f"Detected suspiciously low amount ¥{best_amount[0]}, trying to find better candidate...")
             
             # Look for amounts that are reasonable multiples or similar patterns
             better_candidates = []
             for amount, priority, line in amount_candidates:
                 if amount > 500:  # Only consider amounts > 500
-                    # Boost priority for amounts that appear multiple times
+                    # Boost priority for amounts that appear multiple times (including format variations)
                     amount_frequency = sum(1 for a, _, _ in amount_candidates if a == amount)
-                    frequency_boost = amount_frequency * 50
+                    
+                    # Also count format variations in the full text (strong signal for correct amount)
+                    text_lower = '\n'.join([line for _, _, line in amount_candidates]).lower()
+                    format_variations = [
+                        f'¥{amount}', f'{amount}円', f'¥{amount:,}', f'{amount:,}円',
+                        f'¥{amount}-', f'{amount}-', f'¥ {amount}', f'{amount} '
+                    ]
+                    format_frequency = sum(text_lower.count(var.lower()) for var in format_variations)
+                    
+                    frequency_boost = (amount_frequency * 50) + (format_frequency * 30)
                     
                     # Boost priority for amounts near 小計 (subtotal) which is often the real total
                     if '小計' in line:
@@ -309,8 +348,12 @@ class JapaneseReceiptParser:
             for match in matches:
                 try:
                     amount_str = match.group(1)
-                    # Remove commas and convert to int
-                    amount = int(amount_str.replace(',', ''))
+                    # Remove commas, spaces, and convert to int
+                    # This handles OCR spacing issues like "1, 738" → "1738"
+                    cleaned_amount_str = amount_str.replace(',', '').replace(' ', '').strip()
+                    if not cleaned_amount_str.isdigit():
+                        continue
+                    amount = int(cleaned_amount_str)
                     
                     # Skip obviously wrong amounts
                     if amount < 10 or amount > 1000000:  # ¥10 to ¥1M reasonable range
@@ -354,7 +397,7 @@ class JapaneseReceiptParser:
                     
                     if ('(' in before_match or ')' in after_match or 
                         '(' in match.group() or ')' in match.group()):
-                        confidence -= 200  # Very strong penalty for parentheses (tax amounts)
+                        confidence -= 300  # Ultra strong penalty for parentheses (tax amounts)
                     
                     amounts.append((amount, confidence))
                     

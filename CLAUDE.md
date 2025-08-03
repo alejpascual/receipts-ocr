@@ -127,10 +127,13 @@ out/
 ```
 
 **Excel Format (Single Sheet):**
-- **Filename**: Auto-detected from transaction dates (e.g., "transactions_August_2024.xlsx")
+- **Filename**: Auto-detected from transaction dates (e.g., "transactions_June_2025.xlsx")
 - **Fallback naming**: "transactions_Mixed_Months.xlsx" or "transactions_Unknown_Period.xlsx" 
 - **Main Columns**: File Name, Date, Amount, Category, Description, Review Status, Review Reason, Raw Snippet
-- **Review Status**: "OK" for normal transactions, "REVIEW" for items needing manual attention  
+- **CRITICAL**: Use clean PDF filenames (e.g., "2025-06-14 19-48.pdf") NOT verbose OCR JSON names
+- **Sorting**: Alphabetical by filename for cross-checking with original folder
+- **Title**: Dynamic month/year in summary (e.g., "TRANSACTION SUMMARY - JUNE 2025")
+- **Review Status**: "✓ OK" for normal transactions, "⚠ REVIEW" for items needing manual attention  
 - **Review fields**: Only populated for transactions requiring review
 - **Summary Section**: Key statistics included at the top of the sheet (total transactions, amounts, category breakdown)
 - **Design Goal**: Single tab per month for easy integration into monthly tracking Excel
