@@ -260,6 +260,8 @@ class ExcelExporter:
             current_row += 1
         
         # Add any review items that don't have corresponding transactions
+        # First collect review-only items and sort them alphabetically
+        review_only_items = []
         for item in review_items:
             # Clean the filename properly - remove hash suffix and use .pdf extension
             json_file_name = Path(item.file_path).stem
@@ -271,14 +273,53 @@ class ExcelExporter:
             has_transaction = any(t.get('file_name') == file_name for t in transactions)
             
             if not has_transaction:
-                ws.cell(row=current_row, column=1, value=file_name)
-                ws.cell(row=current_row, column=2, value=item.suggested_date or '')
-                ws.cell(row=current_row, column=3, value=item.suggested_amount or '')
-                ws.cell(row=current_row, column=4, value=item.suggested_category or '')
-                ws.cell(row=current_row, column=5, value="")
-                ws.cell(row=current_row, column=6, value="REVIEW")
-                ws.cell(row=current_row, column=7, value=item.reason)
-                ws.cell(row=current_row, column=8, value=item.raw_snippet)
+                review_only_items.append((item, file_name))
+        
+        # Sort review-only items by filename for consistent cross-checking order
+        review_only_items.sort(key=lambda x: x[1])
+        
+        # Now add the sorted review-only items
+        for item, file_name in review_only_items:
+                row_number += 1
+                
+                # Determine row background (continuing alternating pattern)
+                row_bg = self.colors['row_even'] if row_number % 2 == 0 else self.colors['row_odd']
+                
+                # Basic transaction data with styling
+                cells = [
+                    ws.cell(row=current_row, column=1, value=file_name),
+                    ws.cell(row=current_row, column=2, value=item.suggested_date or ''),
+                    ws.cell(row=current_row, column=3, value=item.suggested_amount or ''),
+                    ws.cell(row=current_row, column=4, value=item.suggested_category or ''),
+                    ws.cell(row=current_row, column=5, value=""),
+                ]
+                
+                # Apply beautiful row styling to data cells
+                for cell in cells:
+                    cell.fill = PatternFill(start_color=row_bg, end_color=row_bg, fill_type="solid")
+                    cell.border = self.styles['thin_border']
+                    cell.alignment = Alignment(vertical="center")
+                
+                # Beautiful REVIEW status cell - red styling
+                review_cell = ws.cell(row=current_row, column=6, value="⚠ REVIEW")
+                review_cell.font = Font(bold=True, color=self.colors['review_text'])
+                review_cell.fill = PatternFill(start_color=self.colors['review_bg'], end_color=self.colors['review_bg'], fill_type="solid")
+                review_cell.alignment = Alignment(horizontal="center", vertical="center")
+                review_cell.border = self.styles['thin_border']
+                
+                # Review information cells with elegant styling
+                reason_cell = ws.cell(row=current_row, column=7, value=item.reason)
+                reason_cell.fill = PatternFill(start_color=row_bg, end_color=row_bg, fill_type="solid")
+                reason_cell.border = self.styles['thin_border']
+                reason_cell.alignment = Alignment(vertical="center")
+                reason_cell.font = Font(italic=True)
+                
+                snippet_cell = ws.cell(row=current_row, column=8, value=item.raw_snippet)
+                snippet_cell.fill = PatternFill(start_color=row_bg, end_color=row_bg, fill_type="solid")
+                snippet_cell.border = self.styles['thin_border']
+                snippet_cell.alignment = Alignment(vertical="center", wrap_text=True)
+                snippet_cell.font = Font(size=9, color='666666')
+                
                 current_row += 1
         
         # Auto-adjust column widths

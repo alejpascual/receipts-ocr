@@ -198,15 +198,24 @@ class JapaneseReceiptParser:
                                     logger.debug(f"High-priority keyword '{keyword}' validation FAILED for amount ¥{amount} in line: {search_line.strip()}")
                             # VERY HIGH priority for 合計 (total) - with or without space
                             elif keyword in ['合計', '合 計']:
-                                keyword_priority = 1000  # Extremely high priority
+                                keyword_priority = 5000  # ULTRA high priority - must beat frequency detection
                                 # Bonus if amount is on same line as 合計
                                 if position == 'current':
-                                    keyword_priority += 500
+                                    keyword_priority += 1000  # Major boost for same line
                                 # Higher bonus if amount is on previous line (common pattern)
                                 elif position == 'previous':
-                                    keyword_priority += 100
+                                    keyword_priority += 500
+                            # HIGH priority for other total keywords
+                            elif keyword in ['総合計', '総 合 計', '税込合計']:
+                                keyword_priority = 4000  # Very high priority
+                                if position == 'current':
+                                    keyword_priority += 800
+                                elif position == 'previous':
+                                    keyword_priority += 400
                             else:
-                                keyword_priority = len(self.total_keywords) - self.total_keywords.index(keyword)
+                                # Standard priority for other keywords, but still boosted to beat frequency
+                                base_priority = len(self.total_keywords) - self.total_keywords.index(keyword)
+                                keyword_priority = base_priority * 100  # Boost by 100x to compete with frequency
                             
                             # Check for avoid keywords in the specific line and also the line before it (for tax amounts)
                             line_has_avoid_keyword = any(avoid_kw in search_line for avoid_kw in self.avoid_keywords)

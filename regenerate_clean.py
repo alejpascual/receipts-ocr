@@ -3,6 +3,7 @@
 
 import sys
 import json
+import os
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
@@ -63,7 +64,9 @@ def main():
     
     # Read existing OCR results and regenerate with clean descriptions
     transactions = []
-    ocr_dir = Path('batch-results/ocr_json')  # Use the complete original batch
+    # Use environment variable or fallback to default batch results
+    ocr_dir_path = os.getenv('OCR_DIR', 'batch-results/ocr_json')
+    ocr_dir = Path(ocr_dir_path)
     
     print(f"Processing {len(list(ocr_dir.glob('*.json')))} OCR files...")
     
@@ -150,7 +153,10 @@ def main():
         filename = f"transactions_{month_year.replace(' ', '_')}.xlsx"
     
     # Export to new Excel with clean descriptions AND review items
-    excel_path = Path(filename)
+    # Use environment variable or current directory for output
+    output_dir_path = os.getenv('OUTPUT_DIR', '.')
+    output_dir = Path(output_dir_path)
+    excel_path = output_dir / filename
     exporter = ExcelExporter(excel_path)
     exporter.export_transactions(transactions, review_queue.items, include_summary=True)
     
