@@ -311,7 +311,18 @@ class JapaneseReceiptParser:
                                 # CRITICAL FIX: For 合計, prefer amounts on previous lines over same line
                                 # This handles cases where tax appears on same line as 合計
                                 if position == 'previous':
-                                    keyword_priority = 6000  # ULTRA high priority for previous line
+                                    # CRITICAL: Check if amount before 合計 could be tax (common pattern)
+                                    # Look at the line before the amount for tax indicators
+                                    prev_line_has_tax = False
+                                    if search_idx > 0:
+                                        prev_line = lines[search_idx - 1]
+                                        prev_line_has_tax = any(tax_ind in prev_line for tax_ind in ['消費税', '税額', '10%', '8%'])
+                                    
+                                    if prev_line_has_tax or self._is_tax_amount(amount, search_line, lines, search_idx):
+                                        keyword_priority = 1000  # Lower priority for potential tax before 合計
+                                        logger.debug(f"合計 previous line amount ¥{amount} might be tax - giving lower priority")
+                                    else:
+                                        keyword_priority = 6000  # ULTRA high priority for previous line
                                 elif position == 'current':
                                     # Check if this could be a tax amount by examining the full line
                                     if self._could_be_tax_on_total_line(amount, search_line):
@@ -1032,7 +1043,20 @@ class JapaneseReceiptParser:
         line_lower = line.lower()
         
         # Check for direct tax indicators in the same line
-        tax_indicators = ['消費税等', '消費税', '税額', '税金', '10%', '8%', '内税']
+        tax_indicators = ['消費税等', '消費税', '税額', '税金', '内税']
+        
+        # Check for tax RATE indicators (but not "対象" which means tax-inclusive total)
+        tax_rate_indicators = ['10%', '8%']
+        tax_rate_found = any(indicator in line for indicator in tax_rate_indicators)
+        
+        # If tax rate is found, check if it's actually a tax-inclusive total indicator
+        if tax_rate_found:
+            # "XX%対象" means "subject to XX% tax" = tax-inclusive total, not tax amount
+            if any(target_indicator in line for target_indicator in ['対象', 'target']):
+                logger.debug(f"Amount NOT tax - line contains tax-inclusive total indicator (XX%対象): {line.strip()}")
+                return False
+            # Otherwise, it's likely a tax rate context
+            tax_indicators.extend(tax_rate_indicators)
         
         # But first check if this line contains total amount indicators that override tax detection
         total_amount_indicators = ['税込', '合計', '総計', '小計', 'total', 'subtotal']

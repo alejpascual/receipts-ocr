@@ -326,15 +326,86 @@ class CategoryClassifier:
                            # Common Tokyo locations in English
                            'Jingumae', 'Roppongi', 'Ginza', 'Akasaka', 'Ebisu', 'Harajuku', 'Omotesando']
         
-        # Non-Tokyo locations (major cities and prefectures)
-        # Note: Removed "京都" as it conflicts with "東京都" (Tokyo Metropolis)
-        non_tokyo_indicators = ['大阪', '神戸', '名古屋', '福岡', '札幌', '仙台', '広島', '岡山', 
-                               '熊本', '鹿児島', '沖縄', '北海道', '青森', '岩手', '宮城', '秋田', '山形', 
-                               '福島', '茨城', '栃木', '群馬', '埼玉', '千葉', '神奈川', '新潟', '富山', 
-                               '石川', '福井', '山梨', '長野', '岐阜', '静岡', '愛知', '三重', '滋賀', 
-                               '京都府', '大阪府', '兵庫', '奈良', '和歌山', '鳥取', '島根', '岡山県', 
-                               '広島県', '山口', '徳島', '香川', '愛媛', '高知', '福岡県', '佐賀', '長崎', 
-                               '熊本県', '大分', '宮崎', '鹿児島県', '沖縄県']
+        # Airport detection - ALWAYS travel
+        airport_indicators = [
+            # Major airports
+            '成田空港', '羽田空港', '関西空港', '中部空港', '新千歳空港', '伊丹空港',
+            # Airport stations  
+            '成田空港駅', '羽田空港駅', '関西空港駅',
+            # Generic airport terms
+            '空港', 'airport', 'Airport', 'AIRPORT'
+        ]
+        
+        # Transportation companies - ALWAYS travel 
+        transportation_companies = [
+            # Railways
+            '京成電鉄', '東海旅客鉄道', 'JR東海', 'JR西日本', 'JR九州', 'JR北海道', 'JR四国',
+            '小田急', '京急', '東急', '西武', '東武', '京王', '相鉄', '阪急', '阪神', '南海',
+            # Airlines  
+            'ANA', 'JAL', '全日空', '日本航空',
+            # Other transport
+            'タクシー', 'taxi', 'TAXI'
+        ]
+        
+        # Transportation keywords
+        transportation_keywords = [
+            '乗車券類', '乗車券', '切符', '運賃', '電車代', 'ticket', 'fare',
+            '取引内容:乗車券類購入', '但し、乗車券類'
+        ]
+        
+        # Non-Tokyo locations (major cities and prefectures) - Enhanced
+        non_tokyo_indicators = [
+            # Major cities - key travel destinations
+            '大阪', '神戸', '名古屋', '京都', '奈良', '福岡', '札幌', '仙台', '広島', '岡山',
+            '熊本', '鹿児島', '沖縄', '横浜', '川崎', '千葉', '神戸', '北九州', '静岡',
+            # Prefectures and regions
+            '北海道', '青森', '岩手', '宮城', '秋田', '山形', '福島', '茨城', '栃木', '群馬', 
+            '埼玉', '千葉県', '神奈川', '新潟', '富山', '石川', '福井', '山梨', '長野', '岐阜', 
+            '静岡県', '愛知', '三重', '滋賀', '京都府', '大阪府', '兵庫', '奈良県', '和歌山', 
+            '鳥取', '島根', '岡山県', '広島県', '山口', '徳島', '香川', '愛媛', '高知', 
+            '福岡県', '佐賀', '長崎', '熊本県', '大分', '宮崎', '鹿児島県', '沖縄県',
+            # Specific areas that indicate travel
+            '名古屋中村', '京都市', '大阪市', '神戸市', '福岡市', '札幌市', '仙台市'
+        ]
+        
+        # Professional services - should be advertising/marketing or software
+        professional_services = [
+            'linkedin', 'linkedinpre', 'twitter', 'facebook', 'instagram', 'youtube',
+            'google ads', 'facebook ads', 'meta', 'hubspot', 'salesforce', 'zoom',
+            'slack', 'microsoft', 'adobe', 'canva', 'mailchimp'
+        ]
+        
+        # PRIORITY 1: Airport detection - ALWAYS travel (highest priority)
+        airport_found = any(indicator in text for indicator in airport_indicators)
+        if airport_found:
+            scores['travel'] = scores.get('travel', 0) + 25.0  # Ultra high priority
+            # Strong penalty for other categories
+            for other_cat in ['entertainment', 'meetings', 'Office supplies']:
+                if other_cat in scores:
+                    scores[other_cat] = max(0, scores[other_cat] - 15.0)
+            logger.info("Airport detected - ultra strong boost for travel category")
+            
+        # PRIORITY 2: Transportation companies - ALWAYS travel
+        transport_company_found = any(company in text for company in transportation_companies)
+        transport_keyword_found = any(keyword in text for keyword in transportation_keywords)
+        
+        if transport_company_found or transport_keyword_found:
+            scores['travel'] = scores.get('travel', 0) + 20.0  # Very high priority
+            # Penalty for other categories
+            for other_cat in ['entertainment', 'meetings']:
+                if other_cat in scores:
+                    scores[other_cat] = max(0, scores[other_cat] - 10.0)
+            logger.info("Transportation company/keywords detected - very strong boost for travel category")
+            
+        # PRIORITY 3: Professional services - Marketing/Advertising or Software
+        professional_service_found = any(service in text_lower for service in professional_services)
+        if professional_service_found:
+            if any(linkedin_indicator in text_lower for linkedin_indicator in ['linkedin', 'linkedinpre']):
+                scores['Advertising'] = scores.get('Advertising', 0) + 15.0  # Strong boost for advertising
+                logger.info("LinkedIn detected - strongly boosting Advertising category")
+            else:
+                scores['Software and Services'] = scores.get('Software and Services', 0) + 15.0
+                logger.info("Professional service detected - strongly boosting Software and Services category")
         
         # Check Tokyo indicators FIRST to avoid conflicts with non-Tokyo patterns
         tokyo_found = any(location in text for location in tokyo_indicators)
@@ -374,14 +445,22 @@ class CategoryClassifier:
                 penalty_strength = 15.0 if strong_tokyo_found else 10.0
                 scores['travel'] = max(0, scores.get('travel', 0) - penalty_strength)  # Strong reduction
                 logger.info(f"Tokyo non-transport detected (strong={strong_tokyo_found}), strongly reducing travel category")
-        # Check for non-Tokyo locations - but only if we don't have strong Tokyo indicators
+        # Check for non-Tokyo locations - ENHANCED priority for Kyoto and other cities
         elif non_tokyo_found and not strong_tokyo_found:
-            # Very strong travel indicator for non-Tokyo locations - overrides everything
-            scores['travel'] = scores.get('travel', 0) + 15.0  # Very high priority
-            # Reduce competing categories when outside Tokyo
-            for other_cat in ['entertainment', 'meetings']:
+            # ULTRA strong travel indicator for non-Tokyo locations - overrides almost everything
+            travel_boost = 20.0  # Very high priority
+            
+            # Special cases for key travel destinations
+            major_travel_cities = ['京都', '大阪', '名古屋', '福岡', '札幌', '広島', '仙台', '岡山', '熊本']
+            if any(city in text for city in major_travel_cities):
+                travel_boost = 25.0  # Ultra high priority for major cities
+                logger.info(f"Major non-Tokyo city detected - ultra strong boost for travel category")
+            
+            scores['travel'] = scores.get('travel', 0) + travel_boost
+            # Strong reduction of competing categories when outside Tokyo
+            for other_cat in ['entertainment', 'meetings', 'Office supplies']:
                 if other_cat in scores:
-                    scores[other_cat] = max(0, scores[other_cat] - 5.0)
+                    scores[other_cat] = max(0, scores[other_cat] - 10.0)
             logger.info(f"Non-Tokyo location detected (no strong Tokyo indicators), strongly boosting travel category")
         
         return scores
