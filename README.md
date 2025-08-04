@@ -235,6 +235,43 @@ The tool meets these accuracy targets:
 - **Amount keywords**: Add to total_keywords list
 - **Vendor extraction**: Customize business_patterns
 
+### Excel Regeneration Workflow
+
+When making classification or parsing fixes, follow this workflow to ensure changes are reflected in the Excel output:
+
+1. **Delete existing Excel files** for the month being regenerated:
+   ```bash
+   rm -f /path/to/receipts-output/*.xlsx
+   ```
+
+2. **Clear OCR cache** (optional, if OCR parsing changes were made):
+   ```bash
+   rm -rf /path/to/receipts-output/ocr_json/
+   ```
+
+3. **Regenerate Excel** with updated fixes:
+   ```bash
+   OCR_DIR="/path/to/receipts-output/ocr_json" python3 regenerate_clean.py
+   ```
+
+**Important**: Always delete the old Excel file before regeneration to avoid confusion with cached results. Classification and parsing fixes will only be reflected after regeneration.
+
+### Handwritten Receipt Processing
+
+The system includes enhanced handling for handwritten receipts where OCR may miss amounts:
+
+**Detection**: Automatically identifies potential handwritten receipts by checking for:
+- Receipt structure patterns (税抜金額, 消費税額等, 領収証)
+- Business context indicators (restaurant names, etc.)
+- Handwritten formatting patterns (様, 但 prefixes)
+
+**Manual Review**: Handwritten receipts with missing amounts are flagged with specific guidance:
+- **Reason**: "missing amount; likely handwritten receipt - check for handwritten ¥ in gray sections"
+- **Context**: Preserves date, business name, and category for efficient review
+- **Action**: Look for handwritten amounts in gray/shaded sections of the receipt
+
+This ensures no handwritten receipts are lost while providing clear guidance for manual data entry.
+
 Run tests after changes:
 ```bash
 python -m pytest tests/  # When test suite is added

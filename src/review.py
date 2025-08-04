@@ -44,7 +44,8 @@ class ReviewQueue:
                      category: str, 
                      category_confidence: float,
                      ocr_confidence: float,
-                     file_path: str) -> bool:
+                     file_path: str,
+                     ocr_text: str = "") -> bool:
         """
         Determine if a receipt should be sent to review.
         
@@ -66,7 +67,20 @@ class ReviewQueue:
             reasons.append("No valid date found")
         
         if not amount:
-            reasons.append("No amount found")
+            # Check if this might be a handwritten receipt with missing OCR
+            handwritten_indicators = [
+                # Text content indicators
+                any(indicator in ocr_text.lower() for indicator in ['curry', '様', '但', '領収証', '税抜金額']),
+                # File path indicators  
+                any(indicator in file_path.lower() for indicator in ['curry', 'restaurant']),
+                # OCR confidence indicators
+                ocr_confidence < 0.9  # Higher threshold since handwritten receipts can have mixed confidence
+            ]
+            
+            if date and any(handwritten_indicators):
+                reasons.append("missing amount; likely handwritten receipt - check for handwritten ¥ in gray sections")
+            else:
+                reasons.append("missing amount")
         
         # Check confidence thresholds
         if category_confidence < self.thresholds['category']:

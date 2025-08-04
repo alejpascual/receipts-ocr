@@ -2,6 +2,7 @@
 
 import yaml
 import logging
+import re
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from rapidfuzz import fuzz
@@ -145,6 +146,38 @@ class CategoryClassifier:
             else:
                 scores['communications (phone, internet, postage)'] = scores.get('communications (phone, internet, postage)', 0) + 3.0
         
+        # IKEA classification - categorize based on actual items (check both vendor and text)
+        is_ikea = (vendor_lower and any(indicator in vendor_lower for indicator in ['ikea', 'イケア'])) or \
+                  any(indicator in text_lower for indicator in ['ikea', 'イケア', 'ikea渋谷', 'ikea shibuya'])
+        
+        if is_ikea:
+            # IKEA food items and restaurant indicators
+            ikea_food_indicators = [
+                'プラントボール', 'plant ball', 'ミートボール', 'meatball',
+                'フード', 'food', 'レストラン', 'restaurant', 'カフェ', 'cafe',
+                'ホットドッグ', 'hot dog', 'ソフトクリーム', 'soft cream',
+                'フィッシュ&チップス', 'fish&chips', 'fish & chips', 'フィッシュアンドチップス'
+            ]
+            
+            # IKEA office/furniture items
+            ikea_office_indicators = [
+                '靴r', '靴R', '靴ラック', 'shoe rack', 'grejig', 'グレイグ',
+                'デスク', 'desk', 'チェア', 'chair', '収納', 'storage',
+                'ファイル', 'file', 'ボックス', 'box', 'シェルフ', 'shelf'
+            ]
+            
+            # Check categories in order of specificity
+            if any(food_item in text_lower for food_item in ikea_food_indicators):
+                scores['entertainment'] = scores.get('entertainment', 0) + 10.0
+                logger.info("IKEA food/restaurant detected - strongly boosting entertainment")
+            elif any(office_item in text_lower for office_item in ikea_office_indicators):
+                scores['Office supplies'] = scores.get('Office supplies', 0) + 10.0
+                logger.info("IKEA office/furniture item detected - strongly boosting Office supplies")
+            # For remaining small purchases at IKEA, likely food (under ¥1200)
+            elif any(int(amount) <= 1200 for amount in re.findall(r'¥?\s*(\d{3,4})\s*¥?', text) if amount.isdigit()):
+                scores['entertainment'] = scores.get('entertainment', 0) + 6.0
+                logger.info("Small IKEA purchase detected - likely food, boosting entertainment")
+        
         # Food/Entertainment heuristics
         if any(indicator in vendor_lower for indicator in ['スターバックス', 'ドトール', '珈琲', 'コーヒー']):
             # Check if it's a business meeting vs personal consumption
@@ -154,7 +187,10 @@ class CategoryClassifier:
                 scores['entertainment'] = scores.get('entertainment', 0) + 2.0
         
         # Restaurant/Bar heuristics - restaurants default to entertainment, light refreshments to meetings
-        restaurant_indicators = ['居酒屋', 'レストラン', '食事', '飲食', '鍋', '火鍋', '店', 'お食事代', '料理', 'rice', 'curry', 'ライス', 'カレー', 'gaprao', 'マヤ', 'ネパール', 'インド', 'bagel', 'cafe', 'カフェ', 'ベーグル']
+        restaurant_indicators = ['居酒屋', 'レストラン', '食事', '飲食', '鍋', '火鍋', '店', 'お食事代', '料理', 'rice', 'curry', 'ライス', 'カレー', 'gaprao', 'マヤ', 'ネパール', 'インド', 'bagel', 'cafe', 'カフェ', 'ベーグル',
+                                # Enhanced food-related characters and terms that indicate restaurants
+                                '牛', '肉', '焼肉', '焼き鳥', '鳥', '豚', '魚', '海鮮', '寿司', '刺身', '天ぷら', 
+                                '定食', '弁当', '丼', '麺', 'ラーメン', 'うどん', 'そば', '串焼']
         if any(indicator in text_lower for indicator in restaurant_indicators):
             # Light refreshments/bento in meeting context → meetings
             if any(light_indicator in text_lower for light_indicator in ['弁当', 'ベント', 'サンドイッチ', 'おにぎり', 'パン', 'ドリンク', '飲み物', 'コーヒー', 'お茶']):
@@ -166,8 +202,8 @@ class CategoryClassifier:
             elif any(strong_indicator in text for strong_indicator in ['真巴石火鍋', 'お食事代として', '火鍋', '鍋', '居酒屋', 'レストラン']):
                 scores['entertainment'] = scores.get('entertainment', 0) + 6.0  # Clear restaurant → entertainment
             # Additional strong restaurant/food indicators
-            elif any(food_indicator in text_lower for food_indicator in ['料理', 'rice', 'curry', 'ライス', 'カレー', 'gaprao', 'マヤ', 'ネパール', 'インド', 'タイ', 'thai', 'bagel', 'cafe', 'カフェ', 'ベーグル']):
-                scores['entertainment'] = scores.get('entertainment', 0) + 7.0  # Very clear food establishment → entertainment
+            elif any(food_indicator in text_lower for food_indicator in ['料理', 'rice', 'curry', 'ライス', 'カレー', 'gaprao', 'マヤ', 'ネパール', 'インド', 'タイ', 'thai', 'bagel', 'cafe', 'カフェ', 'ベーグル', '牛', '肉', '焼肉', '焼き鳥', '鳥', '豚', '魚', '海鮮', '寿司', '刺身', '天ぷら', '定食', '弁当', '丼', '麺', 'ラーメン', 'うどん', 'そば', '串焼']):
+                scores['entertainment'] = scores.get('entertainment', 0) + 8.0  # Very clear food establishment → entertainment
             # Evening meals or alcohol usually entertainment
             elif any(indicator in text_lower for indicator in ['夜', 'ビール', '酒', 'アルコール']):
                 scores['entertainment'] = scores.get('entertainment', 0) + 3.0
@@ -209,18 +245,86 @@ class CategoryClassifier:
         if any(indicator in text_lower for indicator in ad_indicators):
             scores['Advertising'] = scores.get('Advertising', 0) + 4.0
         
-        # Membership fees
+        # Education/Books heuristics - bookstores and educational materials
+        if any(bookstore in text_lower for bookstore in ['有隣堂', '紀伊國屋', 'tsutaya', 'ブックストア', 'bookstore']):
+            # Check if it's actually books/educational content
+            education_indicators = [
+                '本', '書籍', '教科書', '参考書', '語学', '英語', '中国語', 'アラビア語', 'フランス語', 
+                'スペイン語', 'ドイツ語', '韓国語', '学習', '勉強', '教育', '辞書', '辞典',
+                '本の在庫', 'isbn', '復習', '基本', '入門', '初級', '中級', '上級'
+            ]
+            if any(edu_indicator in text_lower for edu_indicator in education_indicators):
+                scores['Education'] = scores.get('Education', 0) + 10.0  # Very strong boost for education
+                # Reduce entertainment score since bookstores might be miscategorized as entertainment
+                scores['entertainment'] = max(0, scores.get('entertainment', 0) - 5.0)
+                logger.info("Bookstore with educational content detected - strongly boosting Education")
+            else:
+                # General bookstore purchase - still likely educational
+                scores['Education'] = scores.get('Education', 0) + 6.0
+                logger.info("Bookstore purchase detected - boosting Education")
+        
+        # Language learning materials detection
+        language_indicators = ['アラビア語', '英語', '中国語', 'フランス語', 'スペイン語', 'ドイツ語', '韓国語', '語学', '復習', '基本']
+        if any(lang in text_lower for lang in language_indicators):
+            scores['Education'] = scores.get('Education', 0) + 8.0  # Strong boost for language learning
+            logger.info("Language learning material detected - boosting Education")
+        
+        # Medical/Healthcare heuristics
+        medical_indicators = ['クリニック', 'clinic', '病院', '医院', '診療所', '歯科', '歯医者']
+        medical_context_indicators = ['保険管理', '保険点数', '診察', '治療', '医療費', '薬局', 'ドラッグストア']
+        
+        if any(indicator in text_lower for indicator in medical_indicators):
+            scores['Medical'] = scores.get('Medical', 0) + 10.0  # Very strong boost for medical facilities
+            logger.info("Medical facility detected - strongly boosting Medical")
+        elif any(indicator in text_lower for indicator in medical_context_indicators):
+            scores['Medical'] = scores.get('Medical', 0) + 8.0  # Strong boost for medical context
+            logger.info("Medical context detected - boosting Medical")
+        # Special case: "点数" alone could mean purchase items, only boost Medical if in medical context
+        elif '点数' in text_lower and any(medical_word in text_lower for medical_word in ['保険', '医療', '診察', '治療', 'クリニック', '病院']):
+            scores['Medical'] = scores.get('Medical', 0) + 6.0  # Moderate boost for medical points
+            logger.info("Medical point system context detected - boosting Medical")
+        
+        # Special detection for Japanese medical point system
+        if '点' in text and any(medical_word in text_lower for medical_word in ['保険', '医療', '診察', '治療']):
+            scores['Medical'] = scores.get('Medical', 0) + 12.0  # Very strong boost for medical points
+            logger.info("Japanese medical point system detected - very strongly boosting Medical")
+        
+        # Membership fees - but check if it's promotional text on restaurant receipts
         if any(indicator in text_lower for indicator in ['会費', '年会費', 'メンバーシップ', '入会金']):
-            scores['Memberships'] = scores.get('Memberships', 0) + 4.0
+            # Check if this is actually a restaurant with promotional membership text
+            restaurant_transaction_indicators = [
+                'pizza', 'pasta', 'ボンゴレ', 'ビアンコ', 'テーブル', '人数:', '担当者:', 
+                'pos:', '点数', '小計', '合計', '内消費税', 'お預り', 'おつり'
+            ]
+            restaurant_name_indicators = ['papa milano', 'ダイナック', 'pizza&pasta']
+            
+            has_restaurant_transaction = any(indicator in text_lower for indicator in restaurant_transaction_indicators)
+            has_restaurant_name = any(indicator in text_lower for indicator in restaurant_name_indicators)
+            
+            if has_restaurant_transaction or has_restaurant_name:
+                # This is likely promotional text on a restaurant receipt
+                scores['entertainment'] = scores.get('entertainment', 0) + 12.0  # Very strong boost for entertainment
+                scores['Memberships'] = scores.get('Memberships', 0) + 0.5  # Very weak membership signal
+                logger.info("Restaurant receipt with promotional membership text detected - strongly boosting entertainment")
+            else:
+                # Likely actual membership fee
+                scores['Memberships'] = scores.get('Memberships', 0) + 4.0
         
         # Geographic detection - outside Tokyo = travel
-        # Tokyo indicators
-        tokyo_indicators = ['東京都', '東京', 'Tokyo', 'tokyo', '渋谷', '新宿', '品川', '池袋', '上野', '銀座', '六本木', '恵比寿', 
+        # Tokyo indicators - Enhanced with English ward names and variations
+        tokyo_indicators = ['東京都', '東京', 'Tokyo', 'tokyo', 'TOKYO', '渋谷', '新宿', '品川', '池袋', '上野', '銀座', '六本木', '恵比寿', 
                            '表参道', '原宿', '秋葉原', '浅草', '丸の内', '有楽町', '新橋', '目黒', '中野', 
                            '吉祥寺', '立川', '八王子', '町田', '府中', '調布', '三鷹', '武蔵野市', '杉並区', 
                            '世田谷区', '大田区', '江東区', '墨田区', '台東区', '荒川区', '足立区', '葛飾区', 
                            '江戸川区', '練馬区', '板橋区', '北区', '豊島区', '文京区', '千代田区', '中央区', 
-                           '港区', '目黒区', '品川区', 'Minato-ku', 'Shibuya', 'Shinjuku', 'Azabu']
+                           '港区', '目黒区', '品川区', 
+                           # English ward names and variations
+                           'Minato-ku', 'Shibuya', 'Shinjuku', 'Azabu', 'Shibuya-ku', 'Shinjuku-ku', 'Minato-ku',
+                           'Chiyoda-ku', 'Chuo-ku', 'Bunkyo-ku', 'Taito-ku', 'Sumida-ku', 'Koto-ku', 'Shinagawa-ku',
+                           'Meguro-ku', 'Ota-ku', 'Setagaya-ku', 'Suginami-ku', 'Nakano-ku', 'Toshima-ku',
+                           'Kita-ku', 'Itabashi-ku', 'Nerima-ku', 'Adachi-ku', 'Katsushika-ku', 'Edogawa-ku', 'Arakawa-ku',
+                           # Common Tokyo locations in English
+                           'Jingumae', 'Roppongi', 'Ginza', 'Akasaka', 'Ebisu', 'Harajuku', 'Omotesando']
         
         # Non-Tokyo locations (major cities and prefectures)
         # Note: Removed "京都" as it conflicts with "東京都" (Tokyo Metropolis)
@@ -237,7 +341,8 @@ class CategoryClassifier:
         non_tokyo_found = any(location in text for location in non_tokyo_indicators)
         
         # Strong Tokyo indicators that should override OCR errors
-        strong_tokyo_indicators = ['Tokyo', 'tokyo', 'Minato-ku', 'Shibuya', 'Azabu', '東京都', '港区', '渋谷区']
+        strong_tokyo_indicators = ['Tokyo', 'tokyo', 'TOKYO', 'Minato-ku', 'Shibuya', 'Shibuya-ku', 'Azabu', 
+                                  '東京都', '港区', '渋谷区', 'Jingumae', ', Japan', 'Japan']
         strong_tokyo_found = any(indicator in text for indicator in strong_tokyo_indicators)
         
         # Special handling for office rental/tax invoices - should always be Rent category
@@ -248,7 +353,9 @@ class CategoryClassifier:
             scores['Other'] = max(0, scores.get('Other', 0) - 10.0)  # Penalty for Other
             logger.info(f"Office rental/tax invoice detected, strongly boosting Rent category and penalizing entertainment")
         # Special handling for Legal Affairs Bureau - should always be Other category
-        elif any(legal_indicator in text_lower for legal_indicator in ['法務局', '登記', '登記簿', '印紙']):
+        # But exclude receipts from stores (they just have stamp tax info)
+        elif (any(legal_indicator in text_lower for legal_indicator in ['法務局', '登記', '登記簿']) or 
+              ('印紙' in text_lower and not any(store_indicator in text_lower for store_indicator in ['ikea', 'イケア', '店舗', 'pos', '取引', '購入', '商品', 'レシート', '領収証']))):
             scores['Other'] = scores.get('Other', 0) + 20.0  # Very strong boost for Other
             scores['travel'] = max(0, scores.get('travel', 0) - 25.0)  # Very strong penalty for travel
             scores['Professional fees'] = max(0, scores.get('Professional fees', 0) - 10.0)  # Penalty for professional fees

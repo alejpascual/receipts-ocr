@@ -25,6 +25,7 @@ class JapaneseReceiptParser:
             r'(\d{4})年(\d{2})月(\d{2})日',           # YYYY年MMDD日 (no spaces, 2-digit month/day)
             r'(\d{4})/(\d{1,2})/(\d{1,2})',         # YYYY/MM/DD
             r'(\d{4})-(\d{1,2})-(\d{1,2})',         # YYYY-MM-DD
+            r'(\d{2})/(\d{1,2})/(\d{1,2})',         # YY/MM/DD (IKEA format)
             r'(令和|平成|昭和)(\d+)年\s*(\d{1,2})月\s*(\d{1,2})日',  # 和暦 (with optional spaces)
         ]
         
@@ -57,6 +58,16 @@ class JapaneseReceiptParser:
             '年', '月', '日', '時', '分', '秒', '取引番号', '登録番号', '電話番号'
         ]
         
+        # CRITICAL: Tax context patterns - these indicate tax amounts that should never be the main total
+        self.tax_context_patterns = [
+            r'消費税等.*¥?([0-9,\s]+)',  # 消費税等 followed by amount
+            r'([0-9,\s]+).*消費税等',    # Amount followed by 消費税等
+            r'10%.*¥?([0-9,\s]+)',      # 10% tax rate followed by amount
+            r'([0-9,\s]+).*10%',        # Amount followed by 10% tax rate
+            r'税額.*¥?([0-9,\s]+)',     # 税額 followed by amount
+            r'([0-9,\s]+).*税額',       # Amount followed by 税額
+        ]
+        
         # Specific patterns for non-amount numeric data
         self.non_amount_patterns = [
             r'登録番号[：:]?\s*([0-9]+)',  # Registration numbers
@@ -67,6 +78,11 @@ class JapaneseReceiptParser:
             r'TEL[：:]?\s*([0-9-]+)',     # Phone numbers
             r'電話[：:]?\s*([0-9-]+)',    # Phone numbers
             r'Phone[：:]?\s*([0-9-]+)',   # Phone numbers
+            # ENHANCED: Better phone number detection for patterns like "TEL 080-3917-8881"
+            r'TEL\s*[0-9-]*([0-9]+)(?:\s*-|$)',  # Numbers at end of phone numbers after TEL
+            r'電話\s*[0-9-]*([0-9]+)(?:\s*-|$)', # Numbers at end of phone numbers after 電話
+            r'([0-9]{3})-([0-9]{4})-([0-9]{4})', # Standard phone format like 080-3917-8881
+            r'([0-9]{4})-([0-9]{4})',    # Partial phone numbers like 3917-8881
             r'口座[：:]?\s*([0-9]+)',     # Account numbers
             r'参照[：:]?\s*([0-9]+)',     # Reference numbers
             r'郵便番号[：:]?\s*([0-9-]+)', # Postal codes
@@ -78,9 +94,12 @@ class JapaneseReceiptParser:
             r'#([0-9]+)',                # Hash number patterns
         ]
         
-        # Date context keywords
+        # Date context keywords - prioritize invoice dates over service period dates
         self.date_keywords = [
-            '発行', '領収', '日付', '年月日', '取引日'
+            # High priority - actual transaction/invoice dates
+            'invoice date', 'invoice', '発行', '領収', '日付', '年月日', '取引日',
+            # Lower priority - service/due dates
+            'due date', 'to date', 'from date'
         ]
         
     def parse_date(self, text: str) -> Optional[str]:
@@ -113,6 +132,16 @@ class JapaneseReceiptParser:
                         else:
                             # Handle western dates
                             year, month, day = match.groups()
+                            
+                            # Handle YY/MM/DD format (convert 2-digit year to 4-digit)
+                            if len(year) == 2:
+                                year_int = int(year)
+                                # Assume years 00-30 are 2000s, 31-99 are 1900s
+                                if year_int <= 30:
+                                    year = f"20{year}"
+                                else:
+                                    year = f"19{year}"
+                            
                             date_str = f"{year}-{int(month):02d}-{int(day):02d}"
                         
                         # Validate date
@@ -121,8 +150,9 @@ class JapaneseReceiptParser:
                         # Check if date is reasonable (not too far in future/past)
                         current_year = datetime.now().year
                         if 2000 <= parsed_date.year <= current_year + 1:
-                            # Calculate priority based on proximity to date keywords
-                            priority = self._calculate_date_priority(line, match.start())
+                            # Calculate priority based on proximity to date keywords (including adjacent lines)
+                            line_idx = lines.index(line) if line in lines else 0
+                            priority = self._calculate_date_priority_with_context(lines, line_idx, match.start())
                             date_candidates.append((date_str, priority, line))
                             
                     except (ValueError, TypeError) as e:
@@ -143,14 +173,89 @@ class JapaneseReceiptParser:
         priority = 0
         line_lower = line.lower()
         
+        # High priority keywords for actual transaction dates
+        high_priority_keywords = ['invoice date', 'invoice', '発行', '領収', '日付', '年月日', '取引日']
+        
         for keyword in self.date_keywords:
-            if keyword in line:
+            if keyword in line_lower:
+                # Calculate base priority based on keyword type
+                if keyword in high_priority_keywords:
+                    base_priority = 50  # Very high priority for invoice/transaction dates
+                else:
+                    base_priority = 10  # Lower priority for service period/due dates
+                
                 # Higher priority if keyword is close to the match
-                keyword_pos = line.find(keyword)
+                keyword_pos = line_lower.find(keyword)
                 distance = abs(keyword_pos - match_pos)
-                priority += max(10 - distance // 5, 1)
+                priority += base_priority - min(distance // 5, base_priority - 1)
         
         return priority
+    
+    def _calculate_date_priority_with_context(self, lines: List[str], line_idx: int, match_pos: int) -> int:
+        """Calculate priority score for date including adjacent lines for keywords."""
+        priority = 0
+        
+        # Check current line
+        priority += self._calculate_date_priority(lines[line_idx], match_pos)
+        
+        # Check previous lines (keywords often appear before dates in invoices)
+        for i in range(max(0, line_idx - 2), line_idx):
+            line_priority = self._calculate_date_priority(lines[i], 0)
+            # Reduce priority for distance from date line
+            priority += line_priority * (0.8 ** (line_idx - i))
+        
+        # Check next lines (less common but possible)
+        for i in range(line_idx + 1, min(len(lines), line_idx + 2)):
+            line_priority = self._calculate_date_priority(lines[i], 0)
+            # Reduce priority for distance from date line
+            priority += line_priority * (0.6 ** (i - line_idx))
+        
+        return int(priority)
+    
+    def _is_likely_handwritten_receipt_with_missing_amount(self, text: str) -> bool:
+        """
+        Detect if this appears to be a handwritten receipt where OCR failed to detect the amount.
+        
+        Indicators:
+        - Has receipt structure (tax fields, etc.)
+        - Has valid business name 
+        - Has valid date
+        - Missing amount despite receipt structure
+        """
+        text_lower = text.lower()
+        
+        # Check for receipt structure indicators
+        receipt_structure_indicators = [
+            '領収証', '領収', '税抜金額', '消費税額', '内訳', '上記正に領収',
+            'receipt', 'tax', 'total', 'amount'
+        ]
+        
+        has_receipt_structure = any(indicator in text_lower for indicator in receipt_structure_indicators)
+        
+        # Check for business indicators
+        has_business_name = any(business_type in text_lower for business_type in [
+            'curry', 'restaurant', 'cafe', 'カフェ', 'レストラン', '食堂', '居酒屋'
+        ])
+        
+        # Check for date (handwritten receipts often have readable dates)
+        has_date = bool(self.parse_date(text))
+        
+        # Check for common handwritten receipt patterns
+        handwritten_indicators = [
+            '様',  # Common on handwritten receipts
+            '但',  # Item description prefix on handwritten receipts
+            'tel',  # Phone numbers are often printed even on handwritten receipts
+        ]
+        
+        has_handwritten_pattern = any(indicator in text_lower for indicator in handwritten_indicators)
+        
+        # If we have receipt structure, business context, date, and handwritten patterns
+        # but no amount, it's likely a handwritten receipt with OCR issues
+        if has_receipt_structure and has_date and (has_business_name or has_handwritten_pattern):
+            logger.info("Detected likely handwritten receipt with missing amount - flagging for manual review with context")
+            return True
+            
+        return False
     
     def parse_amount(self, text: str) -> Optional[int]:
         """
@@ -180,6 +285,11 @@ class JapaneseReceiptParser:
                     for search_line, search_idx, position in search_lines:
                         amounts = self._extract_amounts_from_line(search_line)
                         for amount, confidence in amounts:
+                            # CRITICAL: Check if this amount is a tax amount that should be excluded
+                            if self._is_tax_amount(amount, search_line, lines, search_idx):
+                                logger.debug(f"Excluding tax amount ¥{amount} from line: {search_line.strip()}")
+                                continue
+                            
                             # ULTRA HIGH priority for specific transaction amounts - with enhanced validation
                             if keyword in ['利用金額', '利用額', '入金額', '領収金額']:
                                 # Enhanced validation for ultra-high priority keywords
@@ -198,13 +308,30 @@ class JapaneseReceiptParser:
                                     logger.debug(f"High-priority keyword '{keyword}' validation FAILED for amount ¥{amount} in line: {search_line.strip()}")
                             # VERY HIGH priority for 合計 (total) - with or without space
                             elif keyword in ['合計', '合 計']:
-                                keyword_priority = 5000  # ULTRA high priority - must beat frequency detection
-                                # Bonus if amount is on same line as 合計
-                                if position == 'current':
-                                    keyword_priority += 1000  # Major boost for same line
-                                # Higher bonus if amount is on previous line (common pattern)
-                                elif position == 'previous':
-                                    keyword_priority += 500
+                                # CRITICAL FIX: For 合計, prefer amounts on previous lines over same line
+                                # This handles cases where tax appears on same line as 合計
+                                if position == 'previous':
+                                    keyword_priority = 6000  # ULTRA high priority for previous line
+                                elif position == 'current':
+                                    # Check if this could be a tax amount by examining the full line
+                                    if self._could_be_tax_on_total_line(amount, search_line):
+                                        keyword_priority = 1000  # Lower priority for potential tax on 合計 line
+                                        logger.debug(f"合計 amount ¥{amount} might be tax - giving lower priority")
+                                    else:
+                                        keyword_priority = 5000  # Standard high priority
+                                else:
+                                    # CRITICAL: Check if amount after 合計 could be tax (common pattern)
+                                    # Look at the line after the amount for tax indicators
+                                    next_line_has_tax = False
+                                    if search_idx < len(lines) - 1:
+                                        next_line = lines[search_idx + 1]
+                                        next_line_has_tax = any(tax_ind in next_line for tax_ind in ['消費税', '税額', '10%', '8%'])
+                                    
+                                    if next_line_has_tax or self._is_tax_amount(amount, search_line, lines, search_idx):
+                                        keyword_priority = 1000  # Lower priority for potential tax after 合計
+                                        logger.debug(f"合計 next line amount ¥{amount} might be tax - giving lower priority")
+                                    else:
+                                        keyword_priority = 4000  # High priority for next line
                             # HIGH priority for other total keywords
                             elif keyword in ['総合計', '総 合 計', '税込合計']:
                                 keyword_priority = 4000  # Very high priority
@@ -267,27 +394,51 @@ class JapaneseReceiptParser:
                 all_standalone_amounts.append((amount, confidence, line))
         
         # For each standalone amount, check if it appears frequently and boost its priority
+        # But EXCLUDE tax amounts from frequency analysis to prevent tax amounts from winning
         standalone_frequency = {}
-        for amount, _, _ in all_standalone_amounts:
-            standalone_frequency[amount] = standalone_frequency.get(amount, 0) + 1
+        non_tax_amounts = []
         
-        # Add high-frequency standalone amounts to candidates with boosted priority
-        # CRITICAL FIX: Always add frequent amounts with high priority, even if they exist from keyword search
-        # This ensures that frequently occurring amounts (like main totals) aren't overshadowed by penalties
         for amount, confidence, line in all_standalone_amounts:
-            frequency = standalone_frequency[amount]
-            if frequency >= 3:  # Amount appears 3+ times
+            line_idx = None
+            # Find the line index for tax detection
+            for i, text_line in enumerate(lines):
+                if text_line.strip() == line.strip():
+                    line_idx = i
+                    break
+            
+            # Check if this amount is from a tax line - if so, don't count it in frequency
+            if line_idx is not None and not self._is_tax_amount(amount, line, lines, line_idx):
+                standalone_frequency[amount] = standalone_frequency.get(amount, 0) + 1
+                non_tax_amounts.append((amount, confidence, line))
+            else:
+                logger.debug(f"Excluding tax amount ¥{amount} from frequency analysis: {line.strip()}")
+        
+        # Add high-frequency NON-TAX amounts to candidates with boosted priority
+        for amount, confidence, line in non_tax_amounts:
+            frequency = standalone_frequency.get(amount, 0)
+            if frequency >= 2:  # Lowered from 3 since we're excluding tax amounts now
                 # Calculate a very high priority based on frequency - this should usually win
-                frequency_priority = confidence + (frequency * 300)  # 300 points per occurrence (increased from 200)
+                frequency_priority = confidence + (frequency * 300)  # 300 points per occurrence
+                
+                # EXTRA BOOST for amounts with total indicators (税込, -, etc.)
+                total_indicators = ['税込', '合計', '総計', '小計']
+                if any(indicator in line for indicator in total_indicators) or line.strip().endswith('-'):
+                    frequency_priority += 500  # Major boost for total context
+                    logger.debug(f"Major boost for total context: {line.strip()}")
                 
                 # Always add frequent amounts, even if they exist from keyword search
                 # This gives them a chance to override any penalties from avoid keywords
                 amount_candidates.append((amount, frequency_priority, line))
-                logger.debug(f"Added high-frequency standalone amount ¥{amount} (appears {frequency} times, priority: {frequency_priority})")
+                logger.debug(f"Added high-frequency non-tax amount ¥{amount} (appears {frequency} times, priority: {frequency_priority})")
         
         if not amount_candidates:
-            logger.warning("No amount found in text")
-            return None
+            # Check if this might be a handwritten receipt with missing OCR
+            if self._is_likely_handwritten_receipt_with_missing_amount(text):
+                logger.warning("Potential handwritten receipt detected with missing amount - needs manual review")
+                return None
+            else:
+                logger.warning("No amount found in text")
+                return None
         
         # SMART RECOVERY: If the best amount is suspiciously low (≤800), try to find a better one
         best_amount = max(amount_candidates, key=lambda x: x[1])
@@ -329,9 +480,13 @@ class JapaneseReceiptParser:
             if better_candidates:
                 # Use the best alternative if it has reasonable priority
                 better_amount = max(better_candidates, key=lambda x: x[1])
-                if better_amount[1] > best_amount[1] * 0.7:  # If alternative is reasonably competitive
+                threshold = best_amount[1] * 0.7
+                logger.debug(f"Smart recovery: best=¥{best_amount[0]} (priority:{best_amount[1]}), better=¥{better_amount[0]} (priority:{better_amount[1]}), threshold={threshold}")
+                if better_amount[1] > threshold:  # If alternative is reasonably competitive
                     logger.info(f"Switching from ¥{best_amount[0]} to ¥{better_amount[0]} (better candidate found)")
                     best_amount = better_amount
+                else:
+                    logger.debug(f"Not switching: {better_amount[1]} <= {threshold}")
         
         logger.info(f"Extracted amount: ¥{best_amount[0]} from line: {best_amount[2][:50]}...")
         return best_amount[0]
@@ -339,6 +494,13 @@ class JapaneseReceiptParser:
     def _extract_amounts_from_line(self, line: str) -> List[Tuple[int, int]]:
         """Extract all potential amounts from a line with confidence scores."""
         amounts = []
+        
+        # CRITICAL: Skip pure tax rate lines entirely - they should not generate any amounts
+        # Lines like "647 8%" are tax rate indicators, not amounts
+        # BUT lines like "10%対象(税込) ¥2,800-" are totals and should be processed
+        if re.match(r'^\s*\d+\s*[8|10]%\s*$', line.strip()):
+            logger.debug(f"Skipping pure tax rate line entirely: {line.strip()}")
+            return []
         
         # First check if this line contains non-amount patterns
         non_amount_numbers = set()
@@ -371,6 +533,16 @@ class JapaneseReceiptParser:
                     # CRITICAL: Skip if this number was identified as a non-amount
                     if amount in non_amount_numbers:
                         logger.debug(f"Skipping amount {amount} - identified as non-amount number in line: {line.strip()}")
+                        continue
+                    
+                    # ENHANCED: Check if this is part of a phone number
+                    if self._is_likely_phone_number_part(amount, line):
+                        logger.debug(f"Skipping amount {amount} - appears to be part of phone number in line: {line.strip()}")
+                        continue
+                    
+                    # CRITICAL: Skip amounts that appear in system/metadata contexts
+                    if self._is_likely_system_metadata(amount, line):
+                        logger.debug(f"Skipping amount {amount} - appears to be system metadata in line: {line.strip()}")
                         continue
                     
                     # Skip years that look like amounts (2020-2030 range)
@@ -515,6 +687,8 @@ class JapaneseReceiptParser:
             return "coffee"
         
         # Communications patterns
+        elif any(keyword in text_lower for keyword in ['rakuten mobile', '楽天モバイル', 'rakuten mobile usage']):
+            return "rakuten mobile"
         elif any(keyword in text_lower for keyword in ['wi-fi', 'wifi', 'インターネット', '通信']):
             return "internet"
         elif any(keyword in text_lower for keyword in ['電話', 'phone', 'tel']):
@@ -552,6 +726,26 @@ class JapaneseReceiptParser:
         elif any(keyword in text_lower for keyword in ['コンサル']):
             return "consulting"
         
+        # Medical patterns
+        elif any(keyword in text_lower for keyword in ['クリニック', 'clinic', '病院', '医院', '診療所']):
+            return "medical expense"
+        elif any(keyword in text_lower for keyword in ['歯科', '歯医者']):
+            return "dental expense"
+        elif any(keyword in text_lower for keyword in ['薬局', 'ドラッグストア', '処方箋', '薬代']):
+            return "pharmacy"
+        elif any(keyword in text_lower for keyword in ['健康診断', '人間ドック']):
+            return "health checkup"
+        elif '点' in text_lower and any(keyword in text_lower for keyword in ['保険', '医療']):
+            return "medical expense"
+        
+        # Education/Books patterns
+        elif any(keyword in text_lower for keyword in ['アラビア語', '英語', '中国語', 'フランス語', 'スペイン語', 'ドイツ語', '韓国語']):
+            return "language learning"
+        elif any(keyword in text_lower for keyword in ['有隣堂', '紀伊國屋', 'tsutaya', '本', '書籍', '教科書', '参考書']):
+            return "books"
+        elif any(keyword in text_lower for keyword in ['語学', '学習', '勉強', '教育', '研修', 'セミナー', '講座']):
+            return "education"
+        
         # Advertising patterns
         elif any(keyword in text_lower for keyword in ['google', 'facebook', 'meta', '広告']):
             return "advertising"
@@ -587,6 +781,8 @@ class JapaneseReceiptParser:
             'Rent': 'office rent',
             'Advertising': 'advertising expense',
             'Memberships': 'membership fees',
+            'Education': self._get_education_description(text_lower),
+            'Medical': self._get_medical_description(text_lower),
             'Other': 'business expense'
         }
         
@@ -634,7 +830,9 @@ class JapaneseReceiptParser:
     
     def _get_communications_description(self, text_lower: str) -> str:
         """Get specific communications description based on context."""
-        if any(keyword in text_lower for keyword in ['インターネット', 'wi-fi', 'wifi']):
+        if any(keyword in text_lower for keyword in ['rakuten mobile', '楽天モバイル', 'rakuten mobile usage']):
+            return "rakuten mobile"
+        elif any(keyword in text_lower for keyword in ['インターネット', 'wi-fi', 'wifi']):
             return "internet service"
         elif any(keyword in text_lower for keyword in ['電話', 'phone']):
             return "phone bill"
@@ -651,6 +849,38 @@ class JapaneseReceiptParser:
             return "water bill"
         else:
             return "utility bill"
+    
+    def _get_education_description(self, text_lower: str) -> str:
+        """Get specific education description based on context."""
+        if any(keyword in text_lower for keyword in ['アラビア語', '英語', '中国語', 'フランス語', 'スペイン語', 'ドイツ語', '韓国語']):
+            return "language learning"
+        elif any(keyword in text_lower for keyword in ['有隣堂', '紀伊國屋', 'tsutaya', '本', '書籍']):
+            return "books"
+        elif any(keyword in text_lower for keyword in ['教科書', '参考書', '辞書', '辞典']):
+            return "reference materials"
+        elif any(keyword in text_lower for keyword in ['研修', 'セミナー', '講座']):
+            return "training"
+        elif any(keyword in text_lower for keyword in ['資格', '試験', '検定']):
+            return "certification"
+        else:
+            return "education"
+    
+    def _get_medical_description(self, text_lower: str) -> str:
+        """Get specific medical description based on context."""
+        if any(keyword in text_lower for keyword in ['クリニック', 'clinic', '病院', '医院', '診療所']):
+            return "medical expense"
+        elif any(keyword in text_lower for keyword in ['歯科', '歯医者']):
+            return "dental expense"
+        elif any(keyword in text_lower for keyword in ['薬局', 'ドラッグストア', '処方箋', '薬代']):
+            return "pharmacy"
+        elif any(keyword in text_lower for keyword in ['健康診断', '人間ドック']):
+            return "health checkup"
+        elif any(keyword in text_lower for keyword in ['予防接種', 'ワクチン']):
+            return "vaccination"
+        elif '点' in text_lower and any(keyword in text_lower for keyword in ['保険', '医療']):
+            return "medical expense"
+        else:
+            return "medical expense"
     
     def _extract_context_keywords(self, line: str) -> List[str]:
         """Extract meaningful keywords from a line for description."""
@@ -681,7 +911,10 @@ class JapaneseReceiptParser:
         # Suspicious if preceded by these patterns
         suspicious_prefixes = [
             '登録', 'id', 'no.', 'no:', 'tel', '電話', 'phone', '番号', 
-            '口座', '取引', '参照', '郵便', '〒', '#', '第'
+            '口座', '取引', '参照', '郵便', '〒', '#', '第',
+            # ENHANCED: Better phone number context detection
+            '080-', '090-', '070-', '050-', # Common mobile prefixes
+            '03-', '06-', '011-', '052-', '092-'  # Common area codes
         ]
         
         # Suspicious if followed by these patterns
@@ -716,6 +949,178 @@ class JapaneseReceiptParser:
             # Check if it appears in a date-like context
             if any(date_indicator in full_context for date_indicator in ['年', '月', '日']):
                 return True
+        
+        return False
+    
+    def _is_likely_phone_number_part(self, amount: int, line: str) -> bool:
+        """Check if an amount appears to be part of a phone number."""
+        
+        line_lower = line.lower()
+        amount_str = str(amount)
+        
+        # Check if line contains phone indicators
+        phone_indicators = ['tel', '電話', 'phone', 'fax', 'ファックス']
+        has_phone_indicator = any(indicator in line_lower for indicator in phone_indicators)
+        
+        if not has_phone_indicator:
+            return False
+        
+        # Check for phone number patterns
+        phone_patterns = [
+            r'tel\s*[0-9\-\s]*' + re.escape(amount_str) + r'(?:\s*\-|$)',  # TEL...amount at end or followed by dash
+            r'電話\s*[0-9\-\s]*' + re.escape(amount_str) + r'(?:\s*\-|$)', # 電話...amount at end or followed by dash
+            r'[0-9]{2,3}\-[0-9]{3,4}\-' + re.escape(amount_str) + r'(?:\s*\-|$)',  # Phone format ending with amount
+            r'[0-9]{3,4}\-' + re.escape(amount_str) + r'(?:\s*\-|$)',  # Partial phone ending with amount
+        ]
+        
+        for pattern in phone_patterns:
+            if re.search(pattern, line_lower):
+                return True
+        
+        # Check if amount appears immediately after phone number prefixes
+        phone_prefixes = ['080-', '090-', '070-', '050-', '03-', '06-']
+        for prefix in phone_prefixes:
+            if prefix in line_lower:
+                # Look for the amount appearing after this prefix
+                prefix_pos = line_lower.find(prefix)
+                if prefix_pos >= 0:
+                    after_prefix = line_lower[prefix_pos:]
+                    # Check if our amount appears shortly after the prefix
+                    if amount_str in after_prefix[:20]:  # Within 20 characters
+                        return True
+        
+        return False
+    
+    def _is_likely_system_metadata(self, amount: int, line: str) -> bool:
+        """Check if an amount appears to be system metadata (transaction IDs, etc.) rather than money."""
+        
+        # System/metadata keywords that indicate non-monetary numbers
+        system_keywords = [
+            # POS system terms
+            'POS', '取引', '証学書', 'システム', 'system',
+            # Transaction/ID terms  
+            'ID', 'No', 'NO', 'id', 'no', '番号', '注文番号', '伝票', '端末',
+            # Technical terms
+            'バージョン', 'version', 'Ver', 'ver', 'code', 'コード',
+            # Receipt metadata that's not amounts
+            '時間', '店舗', '取引', '証学書'
+        ]
+        
+        # Check if the line contains system keywords
+        line_lower = line.lower()
+        if any(keyword.lower() in line_lower for keyword in system_keywords):
+            return True
+        
+        # Check if the amount is a standalone large number (likely an ID)
+        # IDs are typically 4+ digits and appear alone on a line
+        if amount >= 1000 and line.strip().isdigit():
+            return True
+        
+        # Check if the amount appears within alphanumeric codes/IDs
+        # Pattern: letters/numbers-digits-amount.digits or similar technical formats
+        import re
+        technical_pattern = r'^[A-Za-z0-9\-\.]+$'
+        if re.match(technical_pattern, line.strip()) and len(line.strip()) > 10:
+            # This looks like a technical ID/code containing the amount as part of it
+            return True
+            
+        return False
+    
+    def _is_tax_amount(self, amount: int, line: str, all_lines: List[str], line_idx: int) -> bool:
+        """Check if an amount is likely a tax amount that should be excluded from main total selection."""
+        
+        line_lower = line.lower()
+        
+        # Check for direct tax indicators in the same line
+        tax_indicators = ['消費税等', '消費税', '税額', '税金', '10%', '8%', '内税']
+        
+        # But first check if this line contains total amount indicators that override tax detection
+        total_amount_indicators = ['税込', '合計', '総計', '小計', 'total', 'subtotal']
+        if any(total_indicator in line_lower for total_indicator in total_amount_indicators):
+            logger.debug(f"Amount NOT tax - line contains total indicator: {line.strip()}")
+            return False
+        
+        # CRITICAL: Check for final total indicators that override tax detection
+        # The "-" suffix is commonly used to indicate final total amounts
+        if line.strip().endswith('-') or '¥' + str(amount) + '-' in line:
+            logger.debug(f"Amount NOT tax - line has final total indicator (-): {line.strip()}")
+            return False
+            
+        if any(indicator in line for indicator in tax_indicators):
+            logger.debug(f"Tax amount detected by direct indicator in line: {line.strip()}")
+            return True
+        
+        # Check for tax context patterns
+        for pattern in self.tax_context_patterns:
+            match = re.search(pattern, line)
+            if match:
+                # Extract the amount from the pattern and see if it matches our amount
+                try:
+                    pattern_amount_str = match.group(1).replace(',', '').replace(' ', '').strip()
+                    if pattern_amount_str.isdigit() and int(pattern_amount_str) == amount:
+                        logger.debug(f"Tax amount detected by pattern '{pattern}' in line: {line.strip()}")
+                        return True
+                except (ValueError, IndexError):
+                    continue
+        
+        # Check adjacent lines for tax context - but be smarter about total vs tax
+        if line_idx > 0:
+            prev_line = all_lines[line_idx - 1]
+            # Check if previous line mentions tax rate (like 10%消費税) but current context is about totals
+            if any(indicator in prev_line for indicator in ['消費税等', '消費税', '税額', '税金']):
+                # Check if the next line or current line indicates this is a total, not tax
+                total_indicators_in_context = ['税込合計', '合計', '小計', '総計', 'total']
+                context_lines = [line]
+                if line_idx < len(all_lines) - 1:
+                    context_lines.append(all_lines[line_idx + 1])
+                
+                if any(any(total_ind in context_line for total_ind in total_indicators_in_context) for context_line in context_lines):
+                    logger.debug(f"NOT tax amount - previous line mentions tax but context indicates total: {prev_line.strip()} -> {line.strip()}")
+                    return False
+                else:
+                    # If previous line mentions tax and this line has amount with no total context, it's likely tax
+                    logger.debug(f"Tax amount detected by previous line context: {prev_line.strip()} -> {line.strip()}")
+                    return True
+        
+        if line_idx < len(all_lines) - 1:
+            next_line = all_lines[line_idx + 1]
+            if any(indicator in next_line for indicator in ['消費税等', '消費税', '税額', '税金']):
+                # If next line mentions tax and this line has the amount, it's likely tax
+                logger.debug(f"Tax amount detected by next line context: {line.strip()} -> {next_line.strip()}")
+                return True
+        
+        # Check if amount appears to be tax based on size relative to total
+        # Small amounts that appear multiple times might be tax
+        if amount <= 200:  # Tax amounts are typically small
+            # Count how many times this amount appears in nearby lines
+            occurrences = 0
+            for i in range(max(0, line_idx - 2), min(len(all_lines), line_idx + 3)):
+                if str(amount) in all_lines[i]:
+                    occurrences += 1
+            
+            # If small amount appears multiple times, it might be tax being repeated
+            if occurrences >= 2:
+                # Additional check: see if there are tax keywords in the vicinity
+                context_lines = all_lines[max(0, line_idx - 2):min(len(all_lines), line_idx + 3)]
+                context_text = ' '.join(context_lines)
+                if any(indicator in context_text for indicator in tax_indicators):
+                    logger.debug(f"Small amount ¥{amount} appears {occurrences} times with tax context - likely tax")
+                    return True
+        
+        return False
+    
+    def _could_be_tax_on_total_line(self, amount: int, line: str) -> bool:
+        """Check if an amount on a 合計 line could actually be a tax amount."""
+        
+        # If the amount is small (typical tax amount) and appears on 合計 line with tax indicators
+        if amount <= 300:  # Typical tax amounts
+            tax_indicators = ['消費税', '税', '10%', '8%']
+            if any(indicator in line for indicator in tax_indicators):
+                return True
+        
+        # Check if the line has both 合計 and tax-related text
+        if '合計' in line and any(indicator in line for indicator in ['消費税', '税額', '10%']):
+            return True
         
         return False
     
