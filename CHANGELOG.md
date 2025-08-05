@@ -1,6 +1,6 @@
 # Receipt OCR Processing System - Change Log
 
-## 2025-08-05 - Classification and Filename Fixes
+## 2025-08-05 - Classification, Filename, and Date Parsing Fixes
 
 ### 🎯 Major Classification Improvements
 
@@ -65,6 +65,18 @@
 - **Files Changed**: `src/export.py`
 - **Testing**: Verified with October 2024 processing - IMG files now maintain proper `.jpeg` extension
 
+### 📅 Enhanced Date Parsing Support
+
+#### YY.MM.DD Format Support
+- **Problem**: Receipts with "24.10.30" format were flagged for review with "no date found"
+- **Impact**: Common Japanese receipt date format not being recognized, causing unnecessary manual reviews
+- **Solution**: Added new date pattern `r'(\d{2})\.(\d{1,2})\.(\d{1,2})'` to handle YY.MM.DD format
+- **Examples**: 
+  - `24.10.30` → `2024-10-30` (October 30, 2024)
+  - `25.03.15` → `2025-03-15` (March 15, 2025)
+- **Files Changed**: `src/parse.py`
+- **Testing**: Verified with October 2024 reprocessing - receipts with dot-separated dates now parsed automatically
+
 ### 📊 Processing Results
 
 #### Monthly Excel Generation Completed
@@ -72,7 +84,7 @@
 - **January 2025**: Fixed date filtering to exclude April/May invoices, proper incorporation docs included
 - **December 2024**: 8 transactions processed with classification fixes applied
 - **November 2024**: Successfully processed with enhanced classification
-- **October 2024**: 33 transactions processed with filename preservation fix
+- **October 2024**: 33 transactions processed with filename preservation fix (regenerated with improved date parsing)
 
 ### 🔧 Technical Enhancements
 
