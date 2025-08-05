@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate Excel with clean descriptions - APRIL 2025 ONLY."""
+"""Regenerate Excel with clean descriptions from existing OCR JSON files - February 2025 only."""
 
 import sys
 import json
@@ -15,19 +15,6 @@ from parse import JapaneseReceiptParser
 from classify import CategoryClassifier
 from export import ExcelExporter
 from review import ReviewQueue
-
-
-def is_april_2025_receipt(date_str):
-    """Check if a date string represents April 2025."""
-    if not date_str:
-        return False
-    
-    try:
-        # Parse ISO date format (YYYY-MM-DD)
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-        return date_obj.year == 2025 and date_obj.month == 4
-    except ValueError:
-        return False
 
 
 def determine_month_year_from_transactions(transactions):
@@ -77,17 +64,16 @@ def main():
     
     # Read existing OCR results and regenerate with clean descriptions
     transactions = []
-    april_transactions = []
-    non_april_transactions = []
-    
     # Use environment variable or fallback to default batch results
     ocr_dir_path = os.getenv('OCR_DIR', 'batch-results/ocr_json')
     ocr_dir = Path(ocr_dir_path)
     
-    all_json_files = list(ocr_dir.glob('*.json'))
-    print(f"Processing {len(all_json_files)} OCR files...")
+    # Filter for February 2025 files only
+    february_files = [f for f in sorted(ocr_dir.glob('*.json')) if f.name.startswith('2025-02-')]
     
-    for json_file in sorted(all_json_files):
+    print(f"Processing {len(february_files)} February 2025 OCR files...")
+    
+    for json_file in february_files:
         try:
             with open(json_file) as f:
                 data = json.load(f)
@@ -114,17 +100,6 @@ def main():
                 clean_file_path = '_'.join(original_file_name.split('_')[:-1]) + '.pdf'
             else:
                 clean_file_path = original_file_name + '.pdf'
-            
-            # Only process April 2025 receipts
-            if not is_april_2025_receipt(date):
-                non_april_transactions.append({
-                    'file_name': clean_file_path,
-                    'date': date,
-                    'amount': amount,
-                    'category': category,
-                    'parsed_month': date[:7] if date else 'unknown'
-                })
-                continue
             
             # Add to review queue with CLEAN filename (this will check confidence thresholds)
             review_queue.add_from_extraction(
@@ -167,30 +142,19 @@ def main():
                         'description': description
                     }
                     transactions.append(transaction)
-                    april_transactions.append(transaction)
             
         except Exception as e:
             print(f"Error processing {json_file}: {e}")
             continue
     
-    # Report filtering results
-    print(f"Filtered to April 2025 only:")
-    print(f"  ✅ April 2025 transactions: {len(transactions)}")
-    print(f"  ⏭️  Non-April transactions skipped: {len(non_april_transactions)}")
-    
-    if non_april_transactions:
-        # Group by month for reporting
-        month_counts = Counter(t['parsed_month'] for t in non_april_transactions)
-        print(f"  Skipped months: {dict(month_counts)}")
-    
-    # Determine month/year for filename (should be April 2025)
+    # Determine month/year for filename
     month_year = determine_month_year_from_transactions(transactions)
     
     # Create filename with month/year
     if month_year in ["Unknown Period", "Mixed Months"]:
-        filename = f"transactions_{month_year.replace(' ', '_')}.xlsx"
+        filename = f"transactions_February_2025.xlsx"
     else:
-        # Convert "April 2025" to "transactions_April_2025.xlsx"
+        # Convert "February 2025" to "transactions_February_2025.xlsx"
         filename = f"transactions_{month_year.replace(' ', '_')}.xlsx"
     
     # Export to new Excel with clean descriptions AND review items
@@ -201,7 +165,7 @@ def main():
     exporter = ExcelExporter(excel_path)
     exporter.export_transactions(transactions, review_queue.items, include_summary=True)
     
-    print(f'✅ Generated {len(transactions)} clean April 2025 transactions in {excel_path}')
+    print(f'✅ Generated {len(transactions)} clean transactions in {excel_path}')
     print(f'📋 {len(review_queue.items)} items sent to manual review')
     
     if review_queue.items:

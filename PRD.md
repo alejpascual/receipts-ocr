@@ -115,11 +115,16 @@ YomiToku CLI and API support format selection, lite mode, device selection, comb
 	•	YYYY年MM月DD日, YYYY/MM/DD, YYYY-MM-DD
 	•	和暦: (令和|平成)(\d+)年(\d+)月(\d+)日
 	•	Normalise to ISO. Reject impossible dates. If multiple, pick the one nearest any of 発行, 領収, 日付.
+	•	OCR error correction: For high-value documents (TAX INVOICE, RENT, OFFICE, amounts >¥50K), apply targeted corrections for common digit confusion (03 ↔ 05).
+	•	Enhanced validation: Month/day range checking and high-value transaction logging for audit trails.
 
 6.2 Amount parsing
 	•	Extract all numbers with , and 円. Normalise commas. Reject obvious subtotals. Prefer candidates near total tokens.
+	•	Enhanced total keywords: Support both お支払い金額 and お支払金額 variants, 支払金額, 利用金額, 利用額, 入金額, 領収金額.
+	•	Handle adjacent line patterns: keyword on one line, amount on next line with optional closing parenthesis.
 	•	Negative values: if 返品 or 返金, keep absolute amount and add Description note 返金.
 	•	If both 税抜 and 税込 present, choose 税込 as your single Amount field.
+	•	High-value protection: Amounts ≥¥50,000 automatically flagged for manual review to prevent OCR errors on critical transactions.
 
 6.3 Vendor detection
 	•	From header blocks and store name tokens like 株式会社, 有限会社, 店, 支店, 堂, 屋. If none, take top-left largest font line.
@@ -148,7 +153,9 @@ You can extend this over time.
 	•	Multiple total candidates within 3 percent of each other.
 	•	Category unresolved or multiple category hits of equal score.
 	•	OCR low confidence region around the amount line.
-	•	You’ll correct directly in the Review sheet. A helper script can reapply fixes by filename key.
+	•	High-value transactions (≥¥50,000) automatically flagged for validation.
+	•	Critical document types (TAX INVOICE, RENT, OFFICE, INVOICE) flagged regardless of amount.
+	•	You'll correct directly in the Review sheet. A helper script can reapply fixes by filename key.
 
 8) Performance
 	•	Process in parallel with a worker pool. For 700 PDFs on M2, plan for 1 to 3 hours in normal mode, faster with --lite but with lower accuracy. YomiToku notes CPU is slower and GPU or MPS is recommended.  ￼
@@ -201,5 +208,85 @@ You can extend this over time.
 
 
 	•	A --dedupe that uses vendor+date+amount to kill duplicates that slipped through.
+
+## CRITICAL LESSONS LEARNED - MARCH 2025 PROCESSING
+
+### Essential Business Logic: No-Date Handling
+**CRITICAL FIX**: Receipts with no parseable date MUST be sent to REVIEW, never skipped entirely.
+
+**Problem**: Original logic was skipping receipts entirely when no date could be parsed, causing high-value transactions (Shinkansen ¥36K, ¥59K) to disappear from Excel output completely.
+
+**Root Cause**: Fundamental business logic flaw - assuming that a receipt without a parseable date should be excluded from processing rather than flagged for manual review.
+
+**Solution**: Implemented `is_no_date_review` flag that ensures any receipt with no date gets sent to Review queue instead of being skipped:
+```python
+if not date:
+    # CRITICAL: No date found - this should go to REVIEW, not be skipped!
+    is_no_date_review = True
+    print(f"⚠️  No date found in {file_path} - sending to review instead of skipping")
+
+# Process March receipts OR receipts with no date (for review)
+if not is_march_2025 and not is_no_date_review:
+    continue  # Only skip if NOT March AND NOT a no-date review case
+```
+
+### Date Parsing Enhancements
+**Enhancement**: Added Shinkansen-specific date pattern `r'(\d{4})\s*-\s*(\d{1,2})\.(\d{1,2})'` to handle "2025 -3.29" format.
+
+**Problem**: Shinkansen receipts have unique date formatting that wasn't recognized by standard patterns.
+
+**Solution**: Extended date pattern recognition to include spaced dash format commonly used in JR receipts.
+
+### Amount Parsing Priority System
+**Enhancement**: Refined Japanese receipt pattern priorities for better accuracy.
+
+**Problem**: Parser sometimes selected お預り金額 (amount tendered) instead of 合計 (total amount) on postal receipts.
+
+**Solution**: Implemented context-aware priority system:
+- Next line after 合計: 7000 priority (ULTRA HIGH for Japanese pattern)
+- Previous line before 合計: 3000 priority  
+- Enhanced avoid keyword detection for お預り金額
+
+### Category Classification Improvements
+**Enhancement**: Added "Personal Services" category for QB House/haircut receipts and expanded coffee shop detection.
+
+**Problem**: QB House receipts classified as "Other" instead of proper business category.
+
+**Solution**: 
+- Added "Personal Services" category with keywords: ["QB House", "QBハウス", "散髪", "理髪", "美容院", "ヘアサロン", "カット"]
+- Enhanced entertainment category with comprehensive coffee terms
+
+### High-Value Transaction Protection
+**Existing Feature**: High-value transactions (≥¥50,000) automatically flagged for manual review to prevent OCR errors on critical transactions.
+
+**Lesson**: This protection worked as designed - rent payments and other high-value items correctly flagged for review, preventing silent OCR errors on critical amounts.
+
+### Testing and Validation Protocol
+**New Protocol**: Always test specific receipt patterns before production deployment:
+1. Create targeted test scripts for specific receipt types (Shinkansen, postal, etc.)
+2. Verify parsing accuracy on actual OCR data, not synthetic text
+3. Confirm March filtering logic includes all expected receipts
+4. Validate that review queue captures problematic cases instead of silently dropping them
+
+**Key Insight**: The difference between "skipping" and "reviewing" is fundamental - one loses data permanently, the other preserves it for human correction.
+
+### Subdirectory Processing
+**Critical Issue**: Files in subdirectories weren't being OCR'd, causing complete data loss.
+
+**Problem**: Invoice files stored in paths like `March 2025/invoice-slimblade.pdf` weren't appearing in Excel output because they were never OCR'd.
+
+**Root Cause**: Initial OCR processing may have missed subdirectories or files were added after initial run.
+
+**Solution**: 
+1. CLI already supports recursive directory scanning with `rglob()`
+2. Created `check_and_process_missing_ocr.py` utility to detect and process any missing files
+3. Always verify OCR JSON files exist for all source PDFs before regenerating Excel
+
+**Prevention Protocol**:
+- After adding new PDFs to any subdirectory, run missing file check
+- Verify OCR JSON count matches total PDF count across all subdirectories
+- Use hash-based detection to identify truly missing files (not duplicates in different locations)
+
+**Key Learning**: "File not processed" is different from "file in review" - ensure ALL files get OCR'd even if they end up needing manual review.
 
 ⸻

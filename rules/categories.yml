@@ -1,14 +1,14 @@
 travel:
-  any: ["JR", "JR東日本", "地下鉄", "タクシー", "高速", "Suica", "Pasmo", "新幹線", "バス", "電車", "切符", "鉄道", "Railway", "VP", "交通"]
+  any: ["JR", "JR東日本", "地下鉄", "タクシー", "高速", "Suica", "Pasmo", "新幹線", "バス", "電車", "切符", "鉄道", "Railway", "VP", "交通", "◇利用日", "◇利用金額", "利用日", "利用金額", "入金額", "支払い方法:Apple Pay"]
 
 "communications (phone, internet, postage)":
   any: ["NTT", "KDDI", "ソフトバンク", "郵便", "切手", "Wi-Fi", "インターネット", "電話", "通信", "楽天モバイル", "Rakuten Mobile", "Rakuten", "4G", "LTE", "携帯", "スマホ", "モバイル"]
 
 "Office supplies":
-  any: ["アマゾン", "Amazon", "ヨドバシ", "ビックカメラ", "文具", "トナー", "コピー用紙", "ペン", "ノート", "オフィス用品", "事務用品", "Equipment"]
+  any: ["アマゾン", "Amazon", "ヨドバシ", "ビックカメラ", "文具", "トナー", "コピー用紙", "ペン", "ノート", "オフィス用品", "事務用品", "Equipment", "IKEA", "イケア", "desk", "デスク", "机", "チェア", "chair", "椅子", "シェルフ", "shelf", "棚", "収納", "ファイル", "file", "バインダー", "binder", "ステーショナリー", "stationery"]
 
 Equipment:
-  any: ["ノートパソコン", "PC", "Mac", "ディスプレイ", "プリンタ", "機材", "カメラ", "パソコン"]
+  any: ["ノートパソコン", "PC", "Mac", "ディスプレイ", "プリンタ", "機材", "カメラ", "パソコン", "Kensington", "ケンジントン", "Slimblade", "スリムブレード", "trackball", "トラックボール", "mouse", "マウス", "keyboard", "キーボード", "monitor", "モニター", "webcam", "ウェブカメラ", "headphone", "ヘッドホン", "speaker", "スピーカー", "充電器", "charger", "cable", "ケーブル", "adapter", "アダプター", "hub", "ハブ", "dock", "ドック"]
 
 Advertising:
   any: ["Google Ads", "Facebook Ads", "Meta", "広告", "リスティング", "チラシ", "宣伝"]
@@ -17,7 +17,7 @@ meetings:
   any: ["会議", "打合せ", "ミーティング", "商談", "会食", "懇親会"]
 
 entertainment:
-  any: ["スターバックス", "Starbucks", "ドトール", "珈琲館", "喫茶", "居酒屋", "レストラン", "カフェ", "飲食", "食事", "タイ", "THAI", "ガーデン", "GARDEN", "インド", "Indian", "Restaurant", "牛", "ロース", "肉", "テーブル", "焼肉", "寿司", "ラーメン", "うどん", "そば", "BURGER", "WAGYU", "CHEESE", "麺類", "野菜", "ビュッフェ", "FARM", "ポーク", "チキン", "ビーフ", "カフェオレ", "チャイ", "Coffee", "プラントボール", "ミートボール", "焼き鳥", "串焼", "鳥", "豚", "魚", "海鮮", "刺身", "天ぷら", "定食", "弁当", "丼", "鍋"]
+  any: ["スターバックス", "Starbucks", "ドトール", "珈琲館", "喫茶", "居酒屋", "レストラン", "カフェ", "飲食", "食事", "タイ", "THAI", "ガーデン", "GARDEN", "インド", "Indian", "Restaurant", "牛", "ロース", "肉", "テーブル", "焼肉", "寿司", "ラーメン", "うどん", "そば", "BURGER", "WAGYU", "CHEESE", "麺類", "野菜", "ビュッフェ", "FARM", "ポーク", "チキン", "ビーフ", "カフェオレ", "チャイ", "Coffee", "COFFEE", "coffee", "Roastery", "ROASTERY", "roastery", "Owl", "OWL", "owl", "珈琲", "コーヒー", "エスプレッソ", "ラテ", "カプチーノ", "プラントボール", "ミートボール", "焼き鳥", "串焼", "鳥", "豚", "魚", "海鮮", "刺身", "天ぷら", "定食", "弁当", "丼", "鍋", "ドリップ", "ブレンド", "モカ", "アメリカーノ", "マキアート", "フラペチーノ", "茶", "紅茶", "抹茶", "ホット", "アイス", "カフェ・ド・クリエ", "タリーズ", "上島珈琲", "コメダ", "喫茶店"]
 
 "outsourced fees":
   any: ["外注", "委託", "請負", "業務委託", "アウトソース"]
@@ -32,7 +32,7 @@ Memberships:
   any: ["会費", "年会費", "メンバーシップ", "入会金", "会員", "LinkedIn", "リンクトイン", "Subscription", "サブスクリプション", "定額", "月額"]
 
 "Software and Services":
-  any: ["GPT", "ChatGPT", "OpenAI", "AI", "Claude", "Software", "ソフトウェア", "SaaS", "API", "アプリ", "App", "プラットフォーム", "Platform", "Service", "サービス", "クラウド", "Cloud"]
+  any: ["GPT", "ChatGPT", "OpenAI", "AI", "Claude", "Software", "ソフトウェア", "SaaS", "API", "アプリ", "App", "プラットフォーム", "Platform", "Service", "サービス", "クラウド", "Cloud", "Setapp", "セットアップ", "subscription", "サブスクリプション", "license", "ライセンス", "月額", "年額", "monthly", "annually", "Dropbox", "ドロップボックス", "GitHub", "ギットハブ", "Slack", "スラック", "Zoom", "ズーム", "Microsoft", "マイクロソフト", "Adobe", "アドビ", "Google", "グーグル", "Apple", "アップル", "iCloud", "アイクラウド", "Microsoft 365", "Office 365", "Creative Cloud", "クリエイティブクラウド", "VPS", "vps", "Virtual Private Server", "サーバー", "Server", "server", "Railway", "railway", "Vercel", "vercel", "Heroku", "heroku", "AWS", "aws", "GCP", "gcp", "Azure", "azure", "Hosting", "hosting", "ホスティング", "Domain", "domain", "ドメイン", "SSL", "ssl", "CDN", "cdn"]
 
 Rent:
   any: ["家賃", "賃料", "地代", "テナント", "オフィス", "Office", "OFFICE", "office", "Kitchen Amenities", "Subtotal", "BOKSEN", "Account number", "Invoice number", "Center name", "TAX INVOICE"]
@@ -45,6 +45,9 @@ Education:
 
 Medical:
   any: ["病院", "クリニック", "clinic", "医院", "診療所", "歯科", "歯医者", "眼科", "内科", "外科", "皮膚科", "整形外科", "小児科", "産婦人科", "精神科", "心療内科", "耳鼻科", "泌尿器科", "脳神経外科", "保険管理", "医療費", "診察", "治療", "薬局", "ドラッグストア", "処方箋", "薬代", "健康診断", "人間ドック", "予防接種", "ワクチン", "点数", "保険点数"]
+
+"Personal Services":
+  any: ["QB House", "QBハウス", "散髪", "理髪", "美容院", "美容室", "ヘアサロン", "ヘアカット", "カット", "髪", "barber", "salon", "beauty", "haircut", "ネイル", "エステ", "マッサージ", "整体", "鍼灸", "あん摩", "リラクゼーション"]
 
 Other:
   any: ["法務局", "法務", "登記", "印紙", "証明書", "戸籍", "住民票", "登記簿"]

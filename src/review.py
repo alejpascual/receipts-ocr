@@ -45,7 +45,8 @@ class ReviewQueue:
                      category_confidence: float,
                      ocr_confidence: float,
                      file_path: str,
-                     ocr_text: str = "") -> bool:
+                     ocr_text: str = "",
+                     parser=None) -> bool:
         """
         Determine if a receipt should be sent to review.
         
@@ -96,6 +97,11 @@ class ReviewQueue:
         # Check for conflicting data
         if category == "Other":
             reasons.append("Category could not be determined")
+        
+        # CRITICAL: Check for high-value transactions that need review
+        if parser and hasattr(parser, 'should_flag_for_high_value_review'):
+            if parser.should_flag_for_high_value_review(ocr_text, amount, date, category, category_confidence):
+                reasons.append("High-value transaction requiring validation")
         
         if reasons:
             logger.info(f"Sending {Path(file_path).name} to review: {'; '.join(reasons)}")

@@ -160,7 +160,7 @@ class ExcelExporter:
         review_transactions = []
         
         for transaction in transactions:
-            file_name = transaction.get('file_name', '')
+            file_name = transaction.get('filename', transaction.get('file_name', ''))
             review_item = review_lookup.get(file_name)
             
             if review_item:
@@ -169,13 +169,13 @@ class ExcelExporter:
                 ok_transactions.append((transaction, None))
         
         # Sort both lists by filename for consistent cross-checking order
-        ok_transactions.sort(key=lambda x: x[0].get('file_name', ''))
-        review_transactions.sort(key=lambda x: x[0].get('file_name', ''))
+        ok_transactions.sort(key=lambda x: x[0].get('filename', x[0].get('file_name', '')))
+        review_transactions.sort(key=lambda x: x[0].get('filename', x[0].get('file_name', '')))
         
         # Add OK transactions first with beautiful styling
         row_number = 0
         for transaction, review_item in ok_transactions:
-            file_name = transaction.get('file_name', '')
+            file_name = transaction.get('filename', transaction.get('file_name', ''))
             row_number += 1
             
             # Determine row background (subtle alternating)
@@ -216,7 +216,7 @@ class ExcelExporter:
         
         # Add REVIEW transactions at the end with sophisticated styling
         for transaction, review_item in review_transactions:
-            file_name = transaction.get('file_name', '')
+            file_name = transaction.get('filename', transaction.get('file_name', ''))
             row_number += 1
             
             # Determine row background (continuing alternating pattern)
@@ -263,10 +263,30 @@ class ExcelExporter:
         # First collect review-only items and sort them alphabetically
         review_only_items = []
         for item in review_items:
-            # Clean the filename properly - remove hash suffix and use .pdf extension
+            # Clean the filename properly - remove hash suffix but preserve original extension
             json_file_name = Path(item.file_path).stem
             if '_' in json_file_name:
-                file_name = '_'.join(json_file_name.split('_')[:-1]) + '.pdf'
+                # Check if this looks like a hash suffix (ends with hex characters)
+                parts = json_file_name.split('_')
+                if len(parts[-1]) >= 8 and all(c in '0123456789abcdef' for c in parts[-1]):
+                    # This is a hash suffix, remove it and preserve original extension
+                    base_name = '_'.join(parts[:-1])
+                    # Preserve original extension for image files
+                    if base_name.startswith('IMG_'):
+                        # IMG files are typically JPEG/PNG - preserve or default to .jpeg
+                        if '.' in base_name:
+                            file_name = base_name  # Already has extension
+                        else:
+                            file_name = base_name + '.jpeg'  # Default IMG files to .jpeg
+                    elif any(base_name.lower().endswith(ext) for ext in ['.jpeg', '.jpg', '.png', '.gif', '.bmp']):
+                        # Already has image extension, keep it
+                        file_name = base_name
+                    else:
+                        # Default to PDF for non-image files
+                        file_name = base_name + '.pdf'
+                else:
+                    # No hash suffix, add .pdf
+                    file_name = json_file_name + '.pdf'
             else:
                 file_name = json_file_name + '.pdf'
             # Check if this review item already has a transaction
