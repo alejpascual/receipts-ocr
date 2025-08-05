@@ -28,6 +28,45 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class FileAuditTracker:
+    """Track what happens to every file during processing."""
+    
+    def __init__(self):
+        self.files = {}  # filename -> status info
+        
+    def add_file(self, filepath: Path):
+        """Register a file found in the input directory."""
+        self.files[str(filepath)] = {
+            'status': 'found',
+            'ocr': None,
+            'date': None,
+            'amount': None,
+            'category': None,
+            'reason': None
+        }
+    
+    def update_file(self, filepath: Path, **kwargs):
+        """Update file status with processing results."""
+        key = str(filepath)
+        if key in self.files:
+            self.files[key].update(kwargs)
+    
+    def get_summary(self) -> Dict[str, int]:
+        """Get summary counts by status."""
+        summary = Counter()
+        for file_info in self.files.values():
+            summary[file_info['status']] += 1
+        return dict(summary)
+    
+    def get_missing_files(self) -> List[str]:
+        """Get list of files that were not processed successfully."""
+        missing = []
+        for filepath, info in self.files.items():
+            if info['status'] not in ['processed', 'review']:
+                missing.append(f"{Path(filepath).name} - {info['status']}: {info.get('reason', 'unknown')}")
+        return missing
+
+
 def determine_month_year_from_transactions(transactions: List[Dict[str, Any]]) -> str:
     """
     Determine the most common month/year from transaction dates.
@@ -109,6 +148,9 @@ class ReceiptProcessor:
             'skipped_duplicates': 0,
             'review_items': 0
         }
+        
+        # Initialize file audit tracker
+        self.audit = FileAuditTracker()
     
     def find_receipt_files(self, input_dir: Path) -> List[Path]:
         """Find all receipt files (PDF and image formats) in the input directory."""
@@ -125,6 +167,10 @@ class ReceiptProcessor:
         # Remove duplicates and sort
         receipt_files = sorted(list(set(receipt_files)))
         logger.info(f"Found {len(receipt_files)} receipt files (PDF/PNG/JPG) in {input_dir}")
+        
+        # Register all files with audit tracker
+        for receipt_file in receipt_files:
+            self.audit.add_file(receipt_file)
         
         return receipt_files
     
@@ -166,6 +212,9 @@ class ReceiptProcessor:
                 text = ocr_result['full_text']
                 ocr_confidence = ocr_result['confidence']
             
+            # Update audit: OCR successful
+            self.audit.update_file(receipt_path, ocr='success', status='ocr_complete')
+            
             # Extract structured data
             date = self.parser.parse_date(text)
             amount = self.parser.parse_amount(text)
@@ -173,6 +222,12 @@ class ReceiptProcessor:
             
             # Classify category first
             category, category_confidence = self.classifier.classify(vendor, "", text)
+            
+            # Update audit with parsed data
+            self.audit.update_file(receipt_path, 
+                                 date=date, 
+                                 amount=amount, 
+                                 category=category)
             
             # Generate description using category information
             description = self.parser.extract_description_context(text, vendor, amount, category)
@@ -200,12 +255,23 @@ class ReceiptProcessor:
                 'needs_review': len(self.review_queue.items) > self.stats['review_items']
             }
             
+            # Update audit with final status
+            if result['needs_review']:
+                self.audit.update_file(receipt_path, status='review')
+            else:
+                self.audit.update_file(receipt_path, status='processed')
+            
             self.stats['processed'] += 1
             return result
             
         except Exception as e:
             logger.error(f"Failed to process {receipt_path}: {e}")
             self.stats['failed'] += 1
+            
+            # Update audit with failure
+            self.audit.update_file(receipt_path, 
+                                 status='failed', 
+                                 reason=str(e))
             
             # Add to review queue as failed item
             self.review_queue.add_item(
@@ -343,6 +409,10 @@ def run(input_dir: Path,
         # Set debug logging if requested
         if debug:
             logging.getLogger().setLevel(logging.DEBUG)
+            # Also enable debug for parse module to show amount selection details
+            logging.getLogger('parse').setLevel(logging.DEBUG)
+            logging.getLogger('classify').setLevel(logging.DEBUG)
+            click.echo("🔍 Debug mode enabled - detailed parsing logs will be shown")
         
         # Initialize processor
         processor = ReceiptProcessor(
@@ -414,6 +484,50 @@ def run(input_dir: Path,
         
         success_rate = (processor.stats['processed'] / processor.stats['total_files']) * 100 if processor.stats['total_files'] > 0 else 0
         click.echo(f"\\nSuccess rate: {success_rate:.1f}%")
+        
+        # Display audit report
+        click.echo("\\n" + "="*50)
+        click.echo("FILE PROCESSING AUDIT")
+        click.echo("="*50)
+        
+        audit_summary = processor.audit.get_summary()
+        for status, count in sorted(audit_summary.items()):
+            click.echo(f"{status}: {count} files")
+        
+        # Show missing/failed files if any
+        missing_files = processor.audit.get_missing_files()
+        if missing_files:
+            click.echo(f"\\n❌ FILES NOT PROCESSED ({len(missing_files)}):")
+            for missing in missing_files[:10]:  # Show first 10
+                click.echo(f"  - {missing}")
+            if len(missing_files) > 10:
+                click.echo(f"  ... and {len(missing_files) - 10} more")
+        
+        # Save detailed audit report
+        audit_file = output_dir / f'audit_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+        with open(audit_file, 'w', encoding='utf-8') as f:
+            f.write("=== RECEIPT PROCESSING AUDIT REPORT ===\\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\\n")
+            f.write(f"Input directory: {input_dir}\\n\\n")
+            
+            f.write("=== SUMMARY ===\\n")
+            for status, count in sorted(audit_summary.items()):
+                f.write(f"{status}: {count} files\\n")
+            
+            f.write("\\n=== DETAILED FILE STATUS ===\\n")
+            for filepath, info in sorted(processor.audit.files.items()):
+                f.write(f"\\nFile: {Path(filepath).name}\\n")
+                f.write(f"  Status: {info['status']}\\n")
+                if info['date']:
+                    f.write(f"  Date: {info['date']}\\n")
+                if info['amount']:
+                    f.write(f"  Amount: ¥{info['amount']}\\n")
+                if info['category']:
+                    f.write(f"  Category: {info['category']}\\n")
+                if info['reason']:
+                    f.write(f"  Reason: {info['reason']}\\n")
+        
+        click.echo(f"\\n📋 Detailed audit report saved: {audit_file}")
         
     except Exception as e:
         logger.error(f"Processing failed: {e}")

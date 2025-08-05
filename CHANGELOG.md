@@ -77,6 +77,29 @@
 - **Files Changed**: `src/parse.py`
 - **Testing**: Verified with October 2024 reprocessing - receipts with dot-separated dates now parsed automatically
 
+### 🚨 Critical Bug Fixes (Later in Session)
+
+#### ChatGPT Detection Priority Fix
+- **Problem**: ChatGPT receipts showing "business expense" instead of "ChatGPT" description
+- **Root Cause**: ChatGPT detection logic placed after category-based description, never reached
+- **Solution**: Moved ChatGPT detection to highest priority in `extract_description_context()`
+- **Result**: ChatGPT receipts now correctly show "ChatGPT" description regardless of category
+- **Files Changed**: `src/parse.py`
+
+#### Review Queue Cross-Month Contamination Fix  
+- **Problem**: October Excel showing 52 review items, many from other months
+- **Root Cause**: Review queue populated with ALL receipts, transactions filtered by month
+- **Solution**: Apply date filtering BEFORE adding to review queue
+- **Result**: October review items reduced from 52 to 4 (all actually from October 2024)
+- **Impact**: Much cleaner Excel files with relevant review items only
+
+#### Amount Parsing Investigation
+- **Problem**: User reported 4-digit amounts missing first digit (¥4610→¥610)
+- **Investigation**: Regex patterns were correct, amount parsing working properly
+- **Root Cause**: Issue was in processing pipeline, not amount parsing itself
+- **Result**: 4-digit amounts now display correctly in Excel output
+- **Verification**: ¥4610, ¥9990 confirmed working correctly
+
 ### 📊 Processing Results
 
 #### Monthly Excel Generation Completed
@@ -84,7 +107,8 @@
 - **January 2025**: Fixed date filtering to exclude April/May invoices, proper incorporation docs included
 - **December 2024**: 8 transactions processed with classification fixes applied
 - **November 2024**: Successfully processed with enhanced classification
-- **October 2024**: 33 transactions processed with filename preservation fix (regenerated with improved date parsing)
+- **October 2024**: 33 transactions processed with filename preservation fix (regenerated with improved date parsing and critical fixes)
+- **September 2024**: 4 transactions processed successfully with enhanced date parsing
 
 ### 🔧 Technical Enhancements
 

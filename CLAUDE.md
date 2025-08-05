@@ -113,4 +113,10 @@ ls -la "/Users/alejpascual/Downloads/receipts-output/ocr_json" | grep -i "img"
 
 ---
 
+## ⚠️ Important Git Commit Guidelines
+
+**CRITICAL**: When committing to Git, NEVER mention "Claude" or "Anthropic" anywhere in commit messages or documentation. This is a strict requirement for all future commits.
+
+## Development Guidelines
+
 **Note**: For latest changes and session logs, see `CHANGELOG.md`

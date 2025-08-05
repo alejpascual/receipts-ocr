@@ -23,12 +23,14 @@ class JapaneseReceiptParser:
         self.date_patterns = [
             r'(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日',  # YYYY年MM月DD日 (with optional spaces)
             r'(\d{4})年(\d{2})月(\d{2})日',           # YYYY年MMDD日 (no spaces, 2-digit month/day)
+            r'(\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日',  # YY年MM月DD日 (24年 7月 9日 format)
             r'(\d{4})/(\d{1,2})/(\d{1,2})',         # YYYY/MM/DD
             r'(\d{4})-(\d{1,2})-(\d{1,2})',         # YYYY-MM-DD
             r'(\d{4})\s*-\s*(\d{1,2})\.(\d{1,2})',  # YYYY -M.DD (Shinkansen format like "2025 -3.29")
             r'(\d{1,2})月\s*(\d{1,2})日',           # MM月DD日 (month/day only, need to infer year)
             r'(\d{2})/(\d{1,2})/(\d{1,2})',         # YY/MM/DD (IKEA format)
             r'(\d{2})\.(\d{1,2})\.(\d{1,2})',       # YY.MM.DD format (common Japanese format like "24.10.30")
+            r'(\d{2})\.-(\d{1,2})\.(\d{1,2})',      # YY.-M.DD format (like "24.-8.30")
             r'(令和|平成|昭和)(\d+)年\s*(\d{1,2})月\s*(\d{1,2})日',  # 和暦 (with optional spaces)
         ]
         
@@ -797,6 +799,10 @@ class JapaneseReceiptParser:
         if any(keyword in text_lower for keyword in ['chatgpt', 'openai', 'gpt-4', 'gpt-3']):
             return "ChatGPT"
         
+        # Rakuten Mobile/Communications patterns (high priority)
+        if any(keyword in text_lower for keyword in ['rakuten', '楽天', 'mobile', 'モバイル']):
+            return "Rakuten Mobile"
+        
         # If we have a pre-classified category, use it as primary guide
         if category:
             category_descriptions = self._get_category_description(category, text_lower)
@@ -1226,7 +1232,7 @@ class JapaneseReceiptParser:
         # Check adjacent lines for tax context - but be smarter about total vs tax
         if line_idx > 0:
             prev_line = all_lines[line_idx - 1]
-            # Check if previous line mentions tax rate (like 10%消費税) but current context is about totals
+            # IMPROVED: Check if previous line mentions tax but be smarter about which amount is tax
             if any(indicator in prev_line for indicator in ['消費税等', '消費税', '税額', '税金']):
                 # Check if the next line or current line indicates this is a total, not tax
                 total_indicators_in_context = ['税込合計', '合計', '小計', '総計', 'total']
@@ -1238,9 +1244,34 @@ class JapaneseReceiptParser:
                     logger.debug(f"NOT tax amount - previous line mentions tax but context indicates total: {prev_line.strip()} -> {line.strip()}")
                     return False
                 else:
-                    # If previous line mentions tax and this line has amount with no total context, it's likely tax
-                    logger.debug(f"Tax amount detected by previous line context: {prev_line.strip()} -> {line.strip()}")
-                    return True
+                    # CRITICAL FIX: Only flag as tax if this is a small amount compared to other amounts in the receipt
+                    # Often the pattern is: ¥44 (tax), (消費税等), ¥600 (total)
+                    # So the amount AFTER the tax indicator is usually the total, not tax
+                    all_amounts = []
+                    for text_line in all_lines:
+                        amounts_in_line = re.findall(r'¥?([0-9,]+)', text_line)
+                        for amt_str in amounts_in_line:
+                            try:
+                                amt = int(amt_str.replace(',', ''))
+                                if 10 <= amt <= 1000000:  # Reasonable range
+                                    all_amounts.append(amt)
+                            except:
+                                continue
+                    
+                    if all_amounts:
+                        avg_amount = sum(all_amounts) / len(all_amounts)
+                        # If this amount is significantly smaller than average, it might be tax
+                        # If it's similar or larger than average, it's probably the total
+                        if amount < avg_amount * 0.3:  # Much smaller than average
+                            logger.debug(f"Tax amount detected by previous line context (small amount): {prev_line.strip()} -> {line.strip()}")
+                            return True
+                        else:
+                            logger.debug(f"NOT tax amount - amount too large compared to average: {prev_line.strip()} -> {line.strip()}")
+                            return False
+                    else:
+                        # Fallback to old logic if we can't determine amounts
+                        logger.debug(f"Tax amount detected by previous line context: {prev_line.strip()} -> {line.strip()}")
+                        return True
         
         if line_idx < len(all_lines) - 1:
             next_line = all_lines[line_idx + 1]

@@ -1,5 +1,5 @@
 travel:
-  any: ["JR", "JR東日本", "地下鉄", "タクシー", "高速", "Suica", "Pasmo", "新幹線", "バス", "電車", "切符", "鉄道", "Railway", "VP", "交通", "◇利用日", "◇利用金額", "利用日", "利用金額", "入金額", "支払い方法:Apple Pay"]
+  any: ["JR", "JR東日本", "地下鉄", "タクシー", "高速", "Suica", "Pasmo", "新幹線", "バス会社", "バス代", "電車", "切符", "鉄道", "Railway", "VP", "交通", "◇利用日", "◇利用金額", "利用日", "利用金額", "入金額", "支払い方法:Apple Pay"]
 
 "communications (phone, internet, postage)":
   any: ["NTT", "KDDI", "ソフトバンク", "郵便", "切手", "Wi-Fi", "インターネット", "電話", "通信", "楽天モバイル", "Rakuten Mobile", "Rakuten", "4G", "LTE", "携帯", "スマホ", "モバイル"]
@@ -32,7 +32,7 @@ Memberships:
   any: ["会費", "年会費", "メンバーシップ", "入会金", "会員", "LinkedIn", "リンクトイン", "Subscription", "サブスクリプション", "定額", "月額"]
 
 "Software and Services":
-  any: ["GPT", "ChatGPT", "OpenAI", "AI", "Claude", "Software", "ソフトウェア", "SaaS", "API", "アプリ", "App", "プラットフォーム", "Platform", "Service", "サービス", "クラウド", "Cloud", "Setapp", "セットアップ", "subscription", "サブスクリプション", "license", "ライセンス", "月額", "年額", "monthly", "annually", "Dropbox", "ドロップボックス", "GitHub", "ギットハブ", "Slack", "スラック", "Zoom", "ズーム", "Microsoft", "マイクロソフト", "Adobe", "アドビ", "Google", "グーグル", "Apple", "アップル", "iCloud", "アイクラウド", "Microsoft 365", "Office 365", "Creative Cloud", "クリエイティブクラウド", "VPS", "vps", "Virtual Private Server", "サーバー", "Server", "server", "Railway", "railway", "Vercel", "vercel", "Heroku", "heroku", "AWS", "aws", "GCP", "gcp", "Azure", "azure", "Hosting", "hosting", "ホスティング", "Domain", "domain", "ドメイン", "SSL", "ssl", "CDN", "cdn"]
+  any: ["GPT", "ChatGPT", "OpenAI", "人工知能", "AI サービス", "AI ツール", "Claude", "Software", "ソフトウェア", "SaaS", "API", "アプリ", "App", "プラットフォーム", "Platform", "Service", "サービス", "クラウド", "Cloud", "Setapp", "セットアップ", "subscription", "サブスクリプション", "license", "ライセンス", "月額", "年額", "monthly", "annually", "Dropbox", "ドロップボックス", "GitHub", "ギットハブ", "Slack", "スラック", "Zoom", "ズーム", "Microsoft", "マイクロソフト", "Adobe", "アドビ", "Google", "グーグル", "Apple", "アップル", "iCloud", "アイクラウド", "Microsoft 365", "Office 365", "Creative Cloud", "クリエイティブクラウド", "VPS", "vps", "Virtual Private Server", "サーバー", "Server", "server", "Railway", "railway", "Vercel", "vercel", "Heroku", "heroku", "AWS", "aws", "GCP", "gcp", "Azure", "azure", "Hosting", "hosting", "ホスティング", "Domain", "domain", "ドメイン", "SSL", "ssl", "CDN", "cdn"]
 
 Rent:
   any: ["家賃", "賃料", "地代", "テナント", "オフィス", "Office", "OFFICE", "office", "Kitchen Amenities", "Subtotal", "BOKSEN", "Account number", "Invoice number", "Center name", "TAX INVOICE"]
@@ -41,10 +41,10 @@ Utilities:
   any: ["電気", "ガス", "水道", "光熱費", "電力", "東京電力", "東京ガス"]
 
 Education:
-  any: ["本", "書籍", "教科書", "参考書", "語学", "英語", "中国語", "アラビア語", "フランス語", "スペイン語", "ドイツ語", "韓国語", "学習", "勉強", "教育", "研修", "セミナー", "講座", "有隣堂", "紀伊國屋", "TSUTAYA", "ブックストア", "bookstore", "雑誌", "辞書", "辞典", "学校", "大学", "資格", "試験", "検定"]
+  any: ["書籍", "教科書", "参考書", "語学", "英語", "中国語", "アラビア語", "フランス語", "スペイン語", "ドイツ語", "韓国語", "学習", "勉強", "教育", "研修", "セミナー", "講座", "有隣堂", "紀伊國屋", "TSUTAYA", "ブックストア", "bookstore", "雑誌", "辞書", "辞典", "学校", "大学", "資格", "試験", "検定", "本屋", "書店"]
 
 Medical:
-  any: ["病院", "クリニック", "clinic", "医院", "診療所", "歯科", "歯医者", "眼科", "内科", "外科", "皮膚科", "整形外科", "小児科", "産婦人科", "精神科", "心療内科", "耳鼻科", "泌尿器科", "脳神経外科", "保険管理", "医療費", "診察", "治療", "薬局", "ドラッグストア", "処方箋", "薬代", "健康診断", "人間ドック", "予防接種", "ワクチン", "点数", "保険点数"]
+  any: ["病院", "クリニック", "clinic", "医院", "診療所", "歯科", "歯医者", "眼科", "内科", "外科", "皮膚科", "整形外科", "小児科", "産婦人科", "精神科", "心療内科", "耳鼻科", "泌尿器科", "脳神経外科", "保険管理", "医療費", "診察", "治療", "薬局", "ドラッグストア", "処方箋", "薬代", "健康診断", "人間ドック", "予防接種", "ワクチン", "診療点数", "保険点数", "医療点数"]
 
 "Personal Services":
   any: ["QB House", "QBハウス", "散髪", "理髪", "美容院", "美容室", "ヘアサロン", "ヘアカット", "カット", "髪", "barber", "salon", "beauty", "haircut", "ネイル", "エステ", "マッサージ", "整体", "鍼灸", "あん摩", "リラクゼーション"]
