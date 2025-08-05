@@ -92,30 +92,6 @@ self.total_keywords = [
 3. **Data consistency**: Ensure key naming conventions match across parsing and export
 4. **Multi-layer validation**: Critical data needs multiple validation checkpoints
 
-## Latest Session Changes (2025-08-05)
-
-### Classification System Overhaul
-- **Suica Travel Fix**: Enhanced travel category with Japanese transport patterns (◇利用日, ◇利用金額)
-- **Coffee Entertainment Fix**: Added comprehensive coffee keywords (ドリップ, ブレンド, モカ, etc.)
-- **ChatGPT Descriptions**: High-priority detection for ChatGPT/OpenAI invoices
-
-### Filename Preservation Fix
-- **Problem**: IMG files converted to .pdf extensions in Excel output
-- **Solution**: Enhanced `src/export.py` to preserve image extensions (.jpeg, .jpg, .png)
-- **Result**: `IMG_FC53181AF2A9-1` now correctly shows as `IMG_FC53181AF2A9-1.jpeg`
-
-### Monthly Processing Completed
-- February 2025: 33 transactions (force-ocr reprocessing)
-- January 2025: Fixed cross-month contamination 
-- December 2024: 8 transactions with classification fixes
-- November 2024: Successfully processed
-- October 2024: 33 transactions with filename fix
-
-### Files Modified
-- `src/export.py`: Filename preservation logic
-- `src/parse.py`: ChatGPT description detection  
-- `rules/categories.yml`: Enhanced travel/entertainment categories
-
 ## Commands to Remember
 
 ```bash
@@ -134,3 +110,7 @@ OCR_DIR="/Users/alejpascual/Downloads/receipts-output/ocr_json" OUTPUT_DIR="/Use
 # Test filename preservation
 ls -la "/Users/alejpascual/Downloads/receipts-output/ocr_json" | grep -i "img"
 ```
+
+---
+
+**Note**: For latest changes and session logs, see `CHANGELOG.md`
