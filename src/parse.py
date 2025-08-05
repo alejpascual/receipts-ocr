@@ -28,6 +28,7 @@ class JapaneseReceiptParser:
             r'(\d{4})\s*-\s*(\d{1,2})\.(\d{1,2})',  # YYYY -M.DD (Shinkansen format like "2025 -3.29")
             r'(\d{1,2})月\s*(\d{1,2})日',           # MM月DD日 (month/day only, need to infer year)
             r'(\d{2})/(\d{1,2})/(\d{1,2})',         # YY/MM/DD (IKEA format)
+            r'(\d{2})\.(\d{1,2})\.(\d{1,2})',       # YY.MM.DD format (common Japanese format like "24.10.30")
             r'(令和|平成|昭和)(\d+)年\s*(\d{1,2})月\s*(\d{1,2})日',  # 和暦 (with optional spaces)
         ]
         
@@ -41,7 +42,7 @@ class JapaneseReceiptParser:
             r'(?:総計|総合計|お買上げ|税込合計)\s*:?\s*¥?\s*([0-9,\s]+)',  # Other total keywords - with space tolerance
             r'([0-9,\s]+)(?=\s*(?:合計|総計|総合計|お買上げ))',  # Numbers before total keywords - with space tolerance
             r'([0-9,\s]+)\)?',  # Numbers with optional closing parenthesis - handle patterns like "1,166)"
-            r'\b([1-9][0-9\s]{2,8})\b',  # Standalone numbers (lowest priority) - with space tolerance
+            r'\b([1-9][0-9,\s]{2,8})\b',  # Standalone numbers (lowest priority) - FIXED: first digit now captured
         ]
         
         # Total keywords (in order of preference) - 合計 is highest priority
@@ -790,17 +791,19 @@ class JapaneseReceiptParser:
         """
         text_lower = text.lower()
         
+        # HIGHEST PRIORITY: Specific pattern matching (overrides category)
+        
+        # ChatGPT/AI Service patterns (highest priority - overrides any category)
+        if any(keyword in text_lower for keyword in ['chatgpt', 'openai', 'gpt-4', 'gpt-3']):
+            return "ChatGPT"
+        
         # If we have a pre-classified category, use it as primary guide
         if category:
             category_descriptions = self._get_category_description(category, text_lower)
             if category_descriptions:
                 return category_descriptions
         
-        # Specific pattern matching (regardless of category)
-        
-        # ChatGPT/AI Service patterns (high priority)
-        if any(keyword in text_lower for keyword in ['chatgpt', 'openai', 'gpt-4', 'gpt-3']):
-            return "ChatGPT"
+        # Additional specific pattern matching (regardless of category)
         
         # Transportation patterns
         if any(keyword in text_lower for keyword in ['タクシー', 'taxi']):
