@@ -159,14 +159,33 @@ class ReceiptProcessor:
         # Support for PDFs and image formats
         patterns = ['*.pdf', '*.PDF', '*.png', '*.PNG', '*.jpg', '*.JPG', '*.jpeg', '*.JPEG']
         
+        # Log directory structure for debugging
+        logger.info(f"Searching for receipt files in: {input_dir}")
+        if input_dir.exists():
+            subdirs = [d for d in input_dir.iterdir() if d.is_dir()]
+            if subdirs:
+                logger.info(f"Found subdirectories: {[d.name for d in subdirs]}")
+        
         for pattern in patterns:
-            receipt_files.extend(input_dir.glob(pattern))
-            # Also search subdirectories
-            receipt_files.extend(input_dir.glob(f'**/{pattern}'))
+            # Search current directory
+            current_files = list(input_dir.glob(pattern))
+            receipt_files.extend(current_files)
+            
+            # Search subdirectories recursively
+            subdir_files = list(input_dir.glob(f'**/{pattern}'))
+            receipt_files.extend(subdir_files)
+            
+            # Log findings for debugging
+            if current_files or subdir_files:
+                logger.info(f"Pattern {pattern}: {len(current_files)} in root, {len(subdir_files)} in subdirs")
         
         # Remove duplicates and sort
         receipt_files = sorted(list(set(receipt_files)))
-        logger.info(f"Found {len(receipt_files)} receipt files (PDF/PNG/JPG) in {input_dir}")
+        logger.info(f"Found {len(receipt_files)} total receipt files (PDF/PNG/JPG) in {input_dir}")
+        
+        # Log each file found for complete audit trail
+        for receipt_file in receipt_files:
+            logger.info(f"  Found: {receipt_file.relative_to(input_dir)}")
         
         # Register all files with audit tracker
         for receipt_file in receipt_files:
@@ -346,6 +365,19 @@ class ReceiptProcessor:
                     })
         
         self.stats['review_items'] = len(self.review_queue.items)
+        
+        # Validate that all found files were processed
+        processed_files = len(results)
+        if processed_files != len(receipt_files):
+            missing_count = len(receipt_files) - processed_files
+            logger.warning(f"⚠️  File processing mismatch! Found {len(receipt_files)} files but only processed {processed_files}")
+            logger.warning(f"   {missing_count} files may have been skipped or failed processing")
+            
+            # Log which files might be missing from results
+            result_paths = {r.get('file_path', '') for r in results if r}
+            for receipt_file in receipt_files:
+                if str(receipt_file) not in result_paths and receipt_file.name not in {Path(p).name for p in result_paths}:
+                    logger.warning(f"   Potentially missed: {receipt_file}")
         
         logger.info(f"Batch processing complete. Processed: {self.stats['processed']}, "
                    f"Failed: {self.stats['failed']}, Review items: {self.stats['review_items']}")

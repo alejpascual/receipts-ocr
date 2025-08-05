@@ -1,0 +1,1 @@
+"""Test suite for Japanese Receipt OCR system."""
